@@ -6,3 +6,5 @@
 ## SavedVariables: MythIncActionBarsDB
 
 Core.lua
+ActionButton.lua
+Bar.lua
