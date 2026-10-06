@@ -34,12 +34,35 @@ function ns.CreateActionPagesConfigPage(
         )
 
     content:SetWidth(1020)
-    content:SetHeight(450)
+    content:SetHeight(430)
 
     local controls = {}
+    local modifierControls = {}
 
     local scrollOffset = 0
     local scrollStep = 45
+
+    local BAR_TO_PAGE = {
+        [1] = 1,
+        [2] = 6,
+        [3] = 5,
+        [4] = 4,
+        [5] = 3,
+        [6] = 13,
+        [7] = 14,
+        [8] = 15,
+    }
+
+    local PAGE_TO_BAR = {
+        [1] = 1,
+        [6] = 2,
+        [5] = 3,
+        [4] = 4,
+        [3] = 5,
+        [13] = 6,
+        [14] = 7,
+        [15] = 8,
+    }
 
     local scrollTrack =
         CreateFrame(
@@ -110,10 +133,16 @@ function ns.CreateActionPagesConfigPage(
     local dragOffset = 0
 
     local function GetMaxScroll()
+        local viewportHeight =
+            page:GetHeight()
+
+        local contentHeight =
+            content:GetHeight()
+
         return math.max(
             0,
-            content:GetHeight()
-                - page:GetHeight()
+            contentHeight
+                - viewportHeight
         )
     end
 
@@ -172,13 +201,17 @@ function ns.CreateActionPagesConfigPage(
                     - thumbHeight
             )
 
-        local ratio = 0
+        local scrollRatio = 0
 
         if maxScroll > 0 then
-            ratio =
+            scrollRatio =
                 scrollOffset
                 / maxScroll
         end
+
+        local thumbOffset =
+            availableTravel
+            * scrollRatio
 
         scrollThumb:ClearAllPoints()
 
@@ -187,20 +220,20 @@ function ns.CreateActionPagesConfigPage(
             scrollTrack,
             "TOP",
             0,
-            -(
-                availableTravel
-                * ratio
-            )
+            -thumbOffset
         )
     end
 
     local function ApplyScroll()
+        local maxScroll =
+            GetMaxScroll()
+
         scrollOffset =
             math.max(
                 0,
                 math.min(
                     scrollOffset,
-                    GetMaxScroll()
+                    maxScroll
                 )
             )
 
@@ -236,14 +269,16 @@ function ns.CreateActionPagesConfigPage(
             return
         end
 
-        local scale =
+        local effectiveScale =
             scrollTrack:GetEffectiveScale()
 
-        local cursor =
-            cursorY / scale
+        local scaledCursorY =
+            cursorY
+            / effectiveScale
 
         local offset =
-            trackTop - cursor
+            trackTop
+            - scaledCursorY
 
         if preserveDragOffset then
             offset =
@@ -258,7 +293,7 @@ function ns.CreateActionPagesConfigPage(
                 )
         end
 
-        local travel =
+        local availableTravel =
             math.max(
                 0,
                 trackHeight
@@ -270,15 +305,16 @@ function ns.CreateActionPagesConfigPage(
                 0,
                 math.min(
                     offset,
-                    travel
+                    availableTravel
                 )
             )
 
         local ratio = 0
 
-        if travel > 0 then
+        if availableTravel > 0 then
             ratio =
-                offset / travel
+                offset
+                / availableTravel
         end
 
         scrollOffset =
@@ -297,7 +333,7 @@ function ns.CreateActionPagesConfigPage(
                 scrollOffset =
                     scrollOffset
                     + scrollStep
-            else
+            elseif delta > 0 then
                 scrollOffset =
                     scrollOffset
                     - scrollStep
@@ -310,9 +346,7 @@ function ns.CreateActionPagesConfigPage(
     scrollTrack:SetScript(
         "OnMouseDown",
         function(_, button)
-            if button
-                ~= "LeftButton"
-            then
+            if button ~= "LeftButton" then
                 return
             end
 
@@ -336,18 +370,20 @@ function ns.CreateActionPagesConfigPage(
                 cursorY =
                 GetCursorPosition()
 
-            local scale =
+            local effectiveScale =
                 scrollTrack:GetEffectiveScale()
 
-            local cursor =
-                cursorY / scale
+            local scaledCursorY =
+                cursorY
+                / effectiveScale
 
             local thumbTop =
                 scrollThumb:GetTop()
 
             if thumbTop then
                 dragOffset =
-                    thumbTop - cursor
+                    thumbTop
+                    - scaledCursorY
             else
                 dragOffset = 0
             end
@@ -402,166 +438,273 @@ function ns.CreateActionPagesConfigPage(
 
     page:SetScript(
         "OnSizeChanged",
-        ApplyScroll
+        function()
+            ApplyScroll()
+        end
     )
 
-    local supportedSection =
-        widgets.CreateSection(
-            content,
-            "Action Pages",
-            1012,
-            126,
-            0,
-            0
+    local function SetFont(
+        fontString,
+        size,
+        muted
+    )
+        fontString:SetFont(
+            font,
+            size,
+            "OUTLINE"
         )
 
+        fontString:SetTextColor(
+            unpack(
+                muted
+                    and colors.muted
+                    or colors.text
+            )
+        )
+    end
+
+    local function GetBarID()
+        return context.GetSelectedBarID()
+    end
+
+    local function GetSettings()
+        return ns.GetBarActionPageSettings(
+            GetBarID()
+        )
+    end
+
+    local function GetBarLabel(
+        barID
+    )
+        local settings =
+            ns.db
+            and ns.db.bars
+            and ns.db.bars[
+                barID
+            ]
+
+        local name =
+            settings
+            and settings.name
+            or (
+                "Bar "
+                .. barID
+            )
+
+        if name == "Bar " .. barID then
+            return name
+        end
+
+        return "Bar "
+            .. barID
+            .. " - "
+            .. name
+    end
+
+    local function GetTargetDescription(
+        modifier
+    )
+        local settings =
+            GetSettings()
+
+        if not settings
+            or not settings[
+                modifier
+            ]
+        then
+            return "No target selected"
+        end
+
+        local rawPage =
+            settings[
+                modifier
+            ].page
+
+        local targetBar =
+            PAGE_TO_BAR[
+                rawPage
+            ]
+
+        if targetBar then
+            return GetBarLabel(
+                targetBar
+            )
+        end
+
+        return "Special Page "
+            .. tostring(
+                rawPage
+            )
+    end
+
     local description =
-        supportedSection:CreateFontString(
+        content:CreateFontString(
             nil,
             "OVERLAY"
         )
 
-    description:SetFont(
-        font,
+    SetFont(
+        description,
         11,
-        "OUTLINE"
-    )
-
-    description:SetTextColor(
-        unpack(colors.muted)
+        true
     )
 
     description:SetPoint(
         "TOPLEFT",
-        supportedSection,
+        content,
         "TOPLEFT",
-        24,
-        -42
+        8,
+        -4
     )
 
-    description:SetWidth(950)
-    description:SetJustifyH("LEFT")
+    description:SetWidth(
+        980
+    )
 
-    local basePageText =
-        supportedSection:CreateFontString(
+    description:SetJustifyH(
+        "LEFT"
+    )
+
+    description:SetText(
+        ""
+    )
+
+    local baseLabel =
+        content:CreateFontString(
             nil,
             "OVERLAY"
         )
 
-    basePageText:SetFont(
-        font,
+    SetFont(
+        baseLabel,
         11,
-        "OUTLINE"
+        false
     )
 
-    basePageText:SetTextColor(
-        unpack(colors.text)
-    )
-
-    basePageText:SetPoint(
+    baseLabel:SetPoint(
         "TOPLEFT",
-        supportedSection,
+        description,
         "TOPLEFT",
-        24,
-        -84
+        8,
+        -4
     )
-
-    local rulesSection =
-        widgets.CreateSection(
-            content,
-            "Modifier Page Rules",
-            1012,
-            260,
-            0,
-            -142
-        )
-
-    local priorityText =
-        rulesSection:CreateFontString(
-            nil,
-            "OVERLAY"
-        )
-
-    priorityText:SetFont(
-        font,
-        11,
-        "OUTLINE"
-    )
-
-    priorityText:SetTextColor(
-        unpack(colors.muted)
-    )
-
-    priorityText:SetPoint(
-        "TOPLEFT",
-        rulesSection,
-        "TOPLEFT",
-        24,
-        -42
-    )
-
-    priorityText:SetText(
-        "If multiple modifiers are held: Alt takes priority over Ctrl, then Shift."
-    )
-
-    local unsupportedSection =
-        widgets.CreateSection(
-            content,
-            "Action Pages",
-            1012,
-            150,
-            0,
-            0
-        )
 
     local unsupportedText =
-        unsupportedSection:CreateFontString(
+        content:CreateFontString(
             nil,
             "OVERLAY"
         )
 
-    unsupportedText:SetFont(
-        font,
-        11,
-        "OUTLINE"
-    )
-
-    unsupportedText:SetTextColor(
-        unpack(colors.muted)
+    SetFont(
+        unsupportedText,
+        12,
+        true
     )
 
     unsupportedText:SetPoint(
         "TOPLEFT",
-        unsupportedSection,
-        "TOPLEFT",
-        24,
-        -46
+        baseLabel,
+        "BOTTOMLEFT",
+        0,
+        -26
     )
 
-    unsupportedText:SetWidth(950)
-    unsupportedText:SetJustifyH("LEFT")
+    unsupportedText:SetWidth(
+        980
+    )
+
+    unsupportedText:SetJustifyH(
+        "LEFT"
+    )
 
     unsupportedText:SetText(
-        "Modifier-based Action Pages currently apply to Blizzard-backed Bars 1–8. Custom MIAB bars will gain their own page system in a later version."
+        "Action Pages are currently available only for Blizzard-backed Bars 1-8. Custom action bars will receive their own paging system later."
     )
 
-    local function GetSettings()
-        return ns.GetBarActionPageSettings(
-            context.GetSelectedBarID()
-        )
+    unsupportedText:Hide()
+
+    local function ApplyEnabled(
+        modifier,
+        enabled
+    )
+        local success,
+            reason =
+            ns.SetBarModifierPageEnabled(
+                GetBarID(),
+                modifier,
+                enabled
+            )
+
+        if not success
+            and reason == "combat"
+        then
+            print(
+                "|cff7fd5ffMythInc Action Bars:|r Action Pages cannot be changed during combat."
+            )
+
+            return
+        end
+
+        page:Refresh()
     end
 
-    local function CreateModifierColumn(
+    local function ApplyTargetBar(
         modifier,
-        label,
+        targetBarID
+    )
+        local pageNumber =
+            BAR_TO_PAGE[
+                targetBarID
+            ]
+
+        if not pageNumber then
+            return
+        end
+
+        local success,
+            reason =
+            ns.SetBarModifierPage(
+                GetBarID(),
+                modifier,
+                pageNumber
+            )
+
+        if not success
+            and reason == "combat"
+        then
+            print(
+                "|cff7fd5ffMythInc Action Bars:|r Action Pages cannot be changed during combat."
+            )
+
+            return
+        end
+
+        page:Refresh()
+    end
+
+    local function CreateModifierSection(
+        modifier,
+        title,
         x
     )
-        local checkbox =
-            widgets.CreateCheckButton(
-                rulesSection,
-                "Enable " .. label,
+        local section =
+            widgets.CreateSection(
+                content,
+                title,
+                324,
+                220,
                 x,
-                -84,
+                -50
+            )
+
+        local enable =
+            widgets.CreateCheckButton(
+                section,
+                "Enable "
+                    .. title
+                    .. " Page",
+                20,
+                -42,
                 function()
                     local settings =
                         GetSettings()
@@ -569,12 +712,14 @@ function ns.CreateActionPagesConfigPage(
                     return settings
                         and settings[
                             modifier
+                        ]
+                        and settings[
+                            modifier
                         ].enabled
                         or false
                 end,
                 function(value)
-                    ns.SetBarModifierPageEnabled(
-                        context.GetSelectedBarID(),
+                    ApplyEnabled(
                         modifier,
                         value
                     )
@@ -584,118 +729,232 @@ function ns.CreateActionPagesConfigPage(
         controls[
             #controls + 1
         ] =
-            checkbox
+            enable
 
-        local slider =
-            widgets.CreateSlider(
-                rulesSection,
-                label .. " Page",
-                1,
-                15,
-                1,
-                x,
-                -132,
-                function()
-                    local settings =
-                        GetSettings()
-
-                    if not settings then
-                        return 1
-                    end
-
-                    return settings[
-                        modifier
-                    ].page
-                end,
-                function(value)
-                    ns.SetBarModifierPage(
-                        context.GetSelectedBarID(),
-                        modifier,
-                        value
-                    )
-                end,
+        local targetCaption =
+            section:CreateFontString(
                 nil,
-                280
+                "OVERLAY"
             )
 
-        controls[
-            #controls + 1
-        ] =
-            slider
+        SetFont(
+            targetCaption,
+            9,
+            true
+        )
+
+        targetCaption:SetPoint(
+            "TOPLEFT",
+            section,
+            "TOPLEFT",
+            20,
+            -86
+        )
+
+        targetCaption:SetText(
+            "SHOW ACTIONS FROM"
+        )
+
+        local currentTarget =
+            section:CreateFontString(
+                nil,
+                "OVERLAY"
+            )
+
+        SetFont(
+            currentTarget,
+            11,
+            false
+        )
+
+        currentTarget:SetPoint(
+            "TOPLEFT",
+            targetCaption,
+            "BOTTOMLEFT",
+            0,
+            -7
+        )
+
+        currentTarget:SetWidth(
+            282
+        )
+
+        currentTarget:SetJustifyH(
+            "LEFT"
+        )
+
+        local barButtons = {}
+
+        for barID = 1, 8 do
+            local index =
+                barID - 1
+
+            local column =
+                index % 4
+
+            local row =
+                math.floor(
+                    index / 4
+                )
+
+            local button =
+                widgets.CreateTabButton(
+                    section,
+                    "Bar " .. barID,
+                    67,
+                    28,
+                    20
+                        + (
+                            column
+                            * 72
+                        ),
+                    -138
+                        - (
+                            row
+                            * 34
+                        ),
+                    function()
+                        ApplyTargetBar(
+                            modifier,
+                            barID
+                        )
+                    end
+                )
+
+            barButtons[
+                barID
+            ] =
+                button
+        end
+
+        modifierControls[
+            modifier
+        ] = {
+            section =
+                section,
+
+            enable =
+                enable,
+
+            currentTarget =
+                currentTarget,
+
+            barButtons =
+                barButtons,
+        }
     end
 
-    CreateModifierColumn(
+    CreateModifierSection(
         "shift",
-        "Shift",
-        24
+        "SHIFT",
+        0
     )
 
-    CreateModifierColumn(
+    CreateModifierSection(
         "ctrl",
-        "Ctrl",
-        354
+        "CTRL",
+        344
     )
 
-    CreateModifierColumn(
+    CreateModifierSection(
         "alt",
-        "Alt",
-        684
+        "ALT",
+        688
     )
 
     page.Refresh =
         function()
             local barID =
-                context.GetSelectedBarID()
+                GetBarID()
 
             local supported =
                 ns.BarSupportsActionPages(
                     barID
                 )
 
-            supportedSection:SetShown(
-                supported
-            )
-
-            rulesSection:SetShown(
-                supported
-            )
-
-            unsupportedSection:SetShown(
-                not supported
-            )
+            local selectedSettings =
+                ns.db
+                and ns.db.bars
+                and ns.db.bars[
+                    barID
+                ]
 
             if supported then
-                content:SetHeight(
-                    420
+                unsupportedText:Hide()
+
+                baseLabel:SetText(
+                    "Normal actions: "
+                    .. GetBarLabel(
+                        barID
+                    )
                 )
 
-                description:SetText(
-                    "Display a different set of actions while Shift, Ctrl, or Alt is held. Releasing the modifier returns this bar to its normal action page."
-                )
-
-                basePageText:SetText(
-                    "Normal action page: Page "
-                        .. tostring(
-                            ns.GetBarBasePage(
-                                barID
-                            )
-                                or "?"
-                        )
-                )
-
-                for _, control in ipairs(
-                    controls
+                for modifier,
+                    data
+                in pairs(
+                    modifierControls
                 ) do
-                    if control.Refresh then
-                        control:Refresh()
+                    data.section:Show()
+
+                    if data.enable.Refresh then
+                        data.enable:Refresh()
+                    end
+
+                    local settings =
+                        GetSettings()
+
+                    local modifierSettings =
+                        settings
+                        and settings[
+                            modifier
+                        ]
+
+                    local currentPage =
+                        modifierSettings
+                        and modifierSettings.page
+
+                    local selectedTargetBar =
+                        currentPage
+                        and PAGE_TO_BAR[
+                            currentPage
+                        ]
+
+                    data.currentTarget:SetText(
+                        GetTargetDescription(
+                            modifier
+                        )
+                    )
+
+                    for targetBarID,
+                        button
+                    in pairs(
+                        data.barButtons
+                    ) do
+                        button:SetSelected(
+                            targetBarID
+                                == selectedTargetBar
+                        )
                     end
                 end
             else
-                content:SetHeight(
-                    170
+                baseLabel:SetText(
+                    selectedSettings
+                    and (
+                        "Selected bar: "
+                        .. selectedSettings.name
+                    )
+                    or ""
                 )
 
-                scrollOffset = 0
+                unsupportedText:Show()
+
+                for _,
+                    data
+                in pairs(
+                    modifierControls
+                ) do
+                    data.section:Hide()
+                end
             end
 
             ApplyScroll()
