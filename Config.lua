@@ -29,6 +29,7 @@ local barHeader
 local barHeaderTitle
 local enableCheckbox
 local unlockButton
+local unlockAllButton
 local hideBlizzardCheckbox
 
 local pageHost
@@ -585,6 +586,20 @@ local function RefreshControls()
         end
     end
 
+    if unlockAllButton then
+    if ns.IsMoveModeActive()
+        or ns.AreAllEnabledBarsUnlocked()
+    then
+        unlockAllButton:SetText(
+            "Lock All Bars"
+        )
+    else
+        unlockAllButton:SetText(
+            "Unlock All Bars"
+        )
+    end
+end
+
     if deleteButton then
         deleteButton:SetShown(
             settings.source
@@ -655,14 +670,16 @@ SelectBar =
         local oldBarID =
             selectedBarID
 
-        if ns.IsBarUnlocked(
-            oldBarID
-        ) then
-            ns.SetBarUnlocked(
-                oldBarID,
-                false
-            )
-        end
+        if not ns.IsMoveModeActive()
+    and ns.IsBarUnlocked(
+        oldBarID
+    )
+then
+    ns.SetBarUnlocked(
+        oldBarID,
+        false
+    )
+end
 
         selectedBarID =
             barID
@@ -1391,7 +1408,7 @@ local function CreateBarSelector()
             150,
             30,
             866,
-            -54,
+            -84,
             function()
                 local barID,
                     reason =
@@ -1414,6 +1431,31 @@ local function CreateBarSelector()
                 )
             end
         )
+    unlockAllButton =
+    widgets.CreateButton(
+        barSelectorSection,
+        "Unlock All Bars",
+        150,
+        30,
+        866,
+        -50,
+        function()
+            local success,
+                reason =
+                ns.ToggleAllBarsUnlocked()
+
+            if not success
+                and reason
+                    == "combat"
+            then
+                print(
+                    "|cff7fd5ffMythInc Action Bars:|r Bars cannot be unlocked during combat."
+                )
+            end
+
+            RefreshControls()
+        end
+    )
 end
 
 local function CreateSelectedBarHeader()
@@ -1909,18 +1951,7 @@ local function CreateConfigPanel()
     panel:SetScript(
         "OnHide",
         function()
-            for barID in pairs(
-                ns.Movers
-            ) do
-                if ns.IsBarUnlocked(
-                    barID
-                ) then
-                    ns.SetBarUnlocked(
-                        barID,
-                        false
-                    )
-                end
-            end
+            ns.LockAllBars()
         end
     )
 

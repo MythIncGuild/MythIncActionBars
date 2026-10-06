@@ -220,8 +220,56 @@ function ns.CreateLayoutConfigPage(
                 local settings =
                     GetSettings()
 
+                local oldScale =
+                    tonumber(
+                        settings.scale
+                    )
+                    or 1
+
+                local newScale =
+                    tonumber(
+                        value
+                    )
+                    or 1
+
+                if oldScale <= 0 then
+                    oldScale = 1
+                end
+
+                if newScale <= 0 then
+                    newScale = 1
+                end
+
+                settings.position =
+                    settings.position
+                    or {}
+
+                local currentX =
+                    tonumber(
+                        settings.position.x
+                    )
+                    or 0
+
+                local currentY =
+                    tonumber(
+                        settings.position.y
+                    )
+                    or 0
+
+                local ratio =
+                    oldScale
+                    / newScale
+
+                settings.position.x =
+                    currentX
+                    * ratio
+
+                settings.position.y =
+                    currentY
+                    * ratio
+
                 settings.scale =
-                    value
+                    newScale
 
                 UpdateBar()
             end,

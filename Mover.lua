@@ -1,60 +1,85 @@
 local addonName, ns = ...
 
-ns.Movers = ns.Movers or {}
+ns.Movers =
+    ns.Movers
+    or {}
 
-local function GetScreenPosition(frame)
-    local frameX, frameY = frame:GetCenter()
-    local parentX, parentY = UIParent:GetCenter()
+local unlockedBars = {}
+local moveModeActive = false
 
-    if not frameX
-        or not frameY
-        or not parentX
-        or not parentY
+local function GetBar(
+    barID
+)
+    return ns.Bars
+        and ns.Bars[
+            barID
+        ]
+end
+
+local function GetSettings(
+    barID
+)
+    return ns.db
+        and ns.db.bars
+        and ns.db.bars[
+            barID
+        ]
+end
+
+local function GetCursorUIPosition()
+    local cursorX,
+        cursorY =
+        GetCursorPosition()
+
+    local scale =
+        UIParent:GetEffectiveScale()
+
+    if not scale
+        or scale <= 0
     then
-        return 0, 0
+        scale = 1
     end
 
-    return frameX - parentX, frameY - parentY
+    return cursorX / scale,
+        cursorY / scale
 end
 
-local function UpdateStoredPosition(barID, mover)
-    local x, y = GetScreenPosition(mover)
+local function ApplyBarPosition(
+    barID,
+    x,
+    y
+)
+    local bar =
+        GetBar(
+            barID
+        )
 
     local settings =
-        ns.db.bars[barID].position
+        GetSettings(
+            barID
+        )
 
-    settings.point = "CENTER"
-    settings.relativePoint = "CENTER"
-    settings.x = math.floor(x + 0.5)
-    settings.y = math.floor(y + 0.5)
-
-    if ns.RefreshConfig then
-        ns.RefreshConfig()
-    end
-end
-
-local function ApplyBarToMover(barID, mover)
-    local bar = ns.GetBar(barID)
-
-    if not bar then
+    if not bar
+        or not settings
+    then
         return
     end
 
-    bar:ClearAllPoints()
-    bar:SetPoint("CENTER", mover, "CENTER")
-end
+    settings.position =
+        settings.position
+        or {}
 
-local function SavePosition(barID, mover)
-    local bar = ns.GetBar(barID)
+    settings.position.point =
+        "CENTER"
 
-    if not bar then
-        return
-    end
+    settings.position.relativePoint =
+        "CENTER"
 
-    UpdateStoredPosition(barID, mover)
+    settings.position.x =
+        x
 
-    local settings =
-        ns.db.bars[barID].position
+    settings.position.y =
+        y
 
     bar:ClearAllPoints()
 
@@ -62,230 +87,552 @@ local function SavePosition(barID, mover)
         "CENTER",
         UIParent,
         "CENTER",
-        settings.x,
-        settings.y
+        x,
+        y
     )
 end
 
-local function SyncMoverToBar(barID, mover)
-    local bar = ns.GetBar(barID)
+local function CreateMover(
+    barID
+)
+    local existing =
+        ns.Movers[
+            barID
+        ]
+
+    if existing then
+        return existing
+    end
+
+    local bar =
+        GetBar(
+            barID
+        )
 
     if not bar then
-        return
+        return nil
     end
 
-    mover:ClearAllPoints()
-    mover:SetPoint("CENTER", bar, "CENTER")
-    mover:SetSize(
-        bar:GetWidth(),
-        bar:GetHeight()
-    )
-end
+    local mover =
+        CreateFrame(
+            "Frame",
+            "MythIncActionBarsMover"
+                .. barID,
+            bar,
+            "BackdropTemplate"
+        )
 
-local function CreateMover(barID)
-    if ns.Movers[barID] then
-        return ns.Movers[barID]
-    end
-
-    local mover = CreateFrame(
-        "Frame",
-        "MythIncActionBarsBar"
-            .. barID
-            .. "Mover",
-        UIParent,
-        "BackdropTemplate"
+    mover:SetAllPoints(
+        bar
     )
 
-    mover.barID = barID
-    mover.moving = false
-    mover.updateElapsed = 0
-
-    mover:SetFrameStrata("DIALOG")
-    mover:SetMovable(true)
-    mover:EnableMouse(true)
-    mover:RegisterForDrag("LeftButton")
-    mover:SetClampedToScreen(true)
-    mover:Hide()
+    mover:SetFrameLevel(
+        bar:GetFrameLevel()
+        + 50
+    )
 
     mover:SetBackdrop({
         bgFile =
-            "Interface\\Buttons\\WHITE8X8",
+            "Interface\\Buttons\\WHITE8x8",
+
         edgeFile =
-            "Interface\\Buttons\\WHITE8X8",
-        edgeSize = 1,
+            "Interface\\Buttons\\WHITE8x8",
+
+        edgeSize =
+            1,
     })
 
     mover:SetBackdropColor(
-        0.1,
-        0.55,
-        0.85,
-        0.10
+        0.05,
+        0.45,
+        0.60,
+        0.25
     )
 
     mover:SetBackdropBorderColor(
-        0.25,
+        0.15,
         0.75,
-        1,
-        0.95
-    )
-
-    local label = mover:CreateFontString(
-        nil,
-        "OVERLAY",
-        "GameFontNormalSmall"
-    )
-
-    label:SetPoint("CENTER")
-    label:SetText(
-        ns.db.bars[barID].name
-    )
-
-    label:SetTextColor(
-        0.85,
-        0.95,
+        0.90,
         1
     )
 
-    label:SetShadowColor(0, 0, 0, 1)
-    label:SetShadowOffset(1, -1)
+    mover:EnableMouse(
+        true
+    )
 
-    mover.label = label
+    mover:RegisterForDrag(
+        "LeftButton"
+    )
+
+    local label =
+        mover:CreateFontString(
+            nil,
+            "OVERLAY",
+            "GameFontNormalSmall"
+        )
+
+    label:SetPoint(
+        "CENTER"
+    )
+
+    label:SetTextColor(
+        1,
+        1,
+        1,
+        1
+    )
+
+    mover.Label =
+        label
+
+    local dragging = false
+    local startCursorX = 0
+    local startCursorY = 0
+    local startBarX = 0
+    local startBarY = 0
+    local currentX = 0
+    local currentY = 0
+
+    mover:SetScript(
+        "OnEnter",
+        function(self)
+            self:SetBackdropColor(
+                0.05,
+                0.55,
+                0.72,
+                0.35
+            )
+
+            self:SetBackdropBorderColor(
+                0.25,
+                0.90,
+                1,
+                1
+            )
+        end
+    )
+
+    mover:SetScript(
+        "OnLeave",
+        function(self)
+            self:SetBackdropColor(
+                0.05,
+                0.45,
+                0.60,
+                0.25
+            )
+
+            self:SetBackdropBorderColor(
+                0.15,
+                0.75,
+                0.90,
+                1
+            )
+        end
+    )
 
     mover:SetScript(
         "OnDragStart",
-        function(self)
+        function()
             if InCombatLockdown() then
                 return
             end
 
-            self.moving = true
-            self.updateElapsed = 0
+            local settings =
+                GetSettings(
+                    barID
+                )
 
-            self:StartMoving()
+            if not settings
+                or not settings.position
+            then
+                return
+            end
 
-            ApplyBarToMover(
+            dragging = true
+
+            startCursorX,
+                startCursorY =
+                GetCursorUIPosition()
+
+            startBarX =
+                tonumber(
+                    settings.position.x
+                )
+                or 0
+
+            startBarY =
+                tonumber(
+                    settings.position.y
+                )
+                or 0
+
+            currentX =
+                startBarX
+
+            currentY =
+                startBarY
+        end
+    )
+
+    mover:SetScript(
+        "OnUpdate",
+        function()
+            if not dragging then
+                return
+            end
+
+            local cursorX,
+                cursorY =
+                GetCursorUIPosition()
+
+            local deltaX =
+                cursorX
+                - startCursorX
+
+            local deltaY =
+                cursorY
+                - startCursorY
+
+            local settings =
+    GetSettings(
+        barID
+    )
+
+local scale =
+    settings
+    and tonumber(
+        settings.scale
+    )
+    or 1
+
+if scale <= 0 then
+    scale = 1
+end
+
+currentX =
+    startBarX
+    + (
+        deltaX
+        / scale
+    )
+
+currentY =
+    startBarY
+    + (
+        deltaY
+        / scale
+    )
+
+            ApplyBarPosition(
                 barID,
-                self
+                currentX,
+                currentY
             )
         end
     )
 
     mover:SetScript(
         "OnDragStop",
-        function(self)
-            self:StopMovingOrSizing()
-
-            self.moving = false
-
-            SavePosition(
-                barID,
-                self
-            )
-
-            SyncMoverToBar(
-                barID,
-                self
-            )
-        end
-    )
-
-    mover:SetScript(
-        "OnUpdate",
-        function(self, elapsed)
-            if not self.moving then
+        function()
+            if not dragging then
                 return
             end
 
-            self.updateElapsed =
-                self.updateElapsed +
-                elapsed
+            dragging = false
 
-            if self.updateElapsed < 0.05 then
-                return
-            end
+            currentX =
+                math.floor(
+                    currentX
+                    + 0.5
+                )
 
-            self.updateElapsed = 0
+            currentY =
+                math.floor(
+                    currentY
+                    + 0.5
+                )
 
-            UpdateStoredPosition(
+            ApplyBarPosition(
                 barID,
-                self
+                currentX,
+                currentY
             )
+
+            if ns.RefreshConfig then
+                ns.RefreshConfig()
+            end
         end
     )
 
-    ns.Movers[barID] = mover
+    mover:Hide()
+
+    ns.Movers[
+        barID
+    ] =
+        mover
 
     return mover
 end
 
-function ns.SetBarUnlocked(barID, unlocked)
-    local bar = ns.GetBar(barID)
+function ns.RefreshBarMover(
+    barID
+)
+    local bar =
+        GetBar(
+            barID
+        )
 
-    if not bar then
+    local settings =
+        GetSettings(
+            barID
+        )
+
+    if not bar
+        or not settings
+    then
+        local mover =
+            ns.Movers[
+                barID
+            ]
+
+        if mover then
+            mover:Hide()
+        end
+
         return
+    end
+
+    local mover =
+        CreateMover(
+            barID
+        )
+
+    if not mover then
+        return
+    end
+
+    mover:ClearAllPoints()
+
+    mover:SetAllPoints(
+        bar
+    )
+
+    mover:SetFrameLevel(
+        bar:GetFrameLevel()
+        + 50
+    )
+
+    mover.Label:SetText(
+        settings.name
+        or (
+            "Bar "
+            .. barID
+        )
+    )
+
+    local shouldShow =
+        unlockedBars[
+            barID
+        ]
+        and settings.enabled
+        and bar:IsShown()
+
+    mover:SetShown(
+        shouldShow
+            and true
+            or false
+    )
+end
+
+function ns.IsBarUnlocked(
+    barID
+)
+    return unlockedBars[
+        barID
+    ] == true
+end
+
+function ns.SetBarUnlocked(
+    barID,
+    unlocked
+)
+    local settings =
+        GetSettings(
+            barID
+        )
+
+    if not settings then
+        return false,
+            "missing"
     end
 
     if InCombatLockdown() then
-        return
+        return false,
+            "combat"
     end
 
-    local settings = ns.db.bars[barID]
-
-    if unlocked and not settings.enabled then
-        return
+    if unlocked
+        and not settings.enabled
+    then
+        return false,
+            "disabled"
     end
 
-    local mover = CreateMover(barID)
+    unlockedBars[
+        barID
+    ] =
+        unlocked
+        and true
+        or nil
 
-    if unlocked then
-        mover.label:SetText(settings.name)
+    ns.RefreshBarMover(
+        barID
+    )
 
-        SyncMoverToBar(
-            barID,
-            mover
-        )
+    return true
+end
 
-        mover:Show()
-    else
-        if mover.moving then
-            mover:StopMovingOrSizing()
+function ns.IsMoveModeActive()
+    return moveModeActive
+end
 
-            mover.moving = false
+function ns.GetUnlockedBarCount()
+    local count = 0
 
-            SavePosition(
-                barID,
-                mover
+    for barID in pairs(
+        unlockedBars
+    ) do
+        if ns.IsBarUnlocked(
+            barID
+        ) then
+            count =
+                count + 1
+        end
+    end
+
+    return count
+end
+
+function ns.AreAllEnabledBarsUnlocked()
+    if not ns.db
+        or not ns.db.bars
+    then
+        return false
+    end
+
+    local foundEnabled =
+        false
+
+    for barID, settings in pairs(
+        ns.db.bars
+    ) do
+        if type(barID)
+            == "number"
+            and type(settings)
+                == "table"
+            and settings.enabled
+        then
+            foundEnabled =
+                true
+
+            if not ns.IsBarUnlocked(
+                barID
+            ) then
+                return false
+            end
+        end
+    end
+
+    return foundEnabled
+end
+
+function ns.SetAllBarsUnlocked(
+    unlocked
+)
+    if InCombatLockdown() then
+        return false,
+            "combat"
+    end
+
+    moveModeActive =
+        unlocked
+        and true
+        or false
+
+    for barID, settings in pairs(
+        ns.db.bars
+    ) do
+        if type(barID)
+            == "number"
+            and type(settings)
+                == "table"
+        then
+            if unlocked
+                and settings.enabled
+            then
+                unlockedBars[
+                    barID
+                ] =
+                    true
+            else
+                unlockedBars[
+                    barID
+                ] =
+                    nil
+            end
+
+            ns.RefreshBarMover(
+                barID
             )
         end
-
-        mover:Hide()
     end
+
+    if ns.RefreshConfig then
+        ns.RefreshConfig()
+    end
+
+    return true
 end
 
-function ns.IsBarUnlocked(barID)
-    local mover = ns.Movers[barID]
-
-    return mover
-        and mover:IsShown()
-        or false
-end
-
-function ns.RefreshBarMover(barID)
-    local mover = ns.Movers[barID]
-
-    if not mover
-        or not mover:IsShown()
-        or mover.moving
+function ns.ToggleAllBarsUnlocked()
+    if moveModeActive
+        or ns.AreAllEnabledBarsUnlocked()
     then
-        return
+        return ns.SetAllBarsUnlocked(
+            false
+        )
     end
 
-    mover.label:SetText(
-        ns.db.bars[barID].name
-    )
-
-    SyncMoverToBar(
-        barID,
-        mover
+    return ns.SetAllBarsUnlocked(
+        true
     )
 end
+
+function ns.LockAllBars()
+    return ns.SetAllBarsUnlocked(
+        false
+    )
+end
+
+local eventFrame =
+    CreateFrame(
+        "Frame"
+    )
+
+eventFrame:RegisterEvent(
+    "PLAYER_REGEN_DISABLED"
+)
+
+eventFrame:SetScript(
+    "OnEvent",
+    function()
+        if moveModeActive
+            or ns.GetUnlockedBarCount() > 0
+        then
+            ns.SetAllBarsUnlocked(
+                false
+            )
+        end
+    end
+)
