@@ -562,7 +562,17 @@ function ns.CreateBar(
     barID
 )
     if ns.Bars[barID] then
-        return ns.Bars[barID]
+        if GetBarSettings(
+            barID
+        ) then
+            ApplyBarUpdate(
+                barID
+            )
+        end
+
+        return ns.Bars[
+            barID
+        ]
     end
 
     local settings =
@@ -1145,20 +1155,97 @@ function ns.DeleteBar(
     ] =
         nil
 
-    ns.Bars[
-        barID
-    ] =
-        nil
+    if ns.ApplyAllKeybinds then
+        ns.ApplyAllKeybinds()
+    end
 
-    if ns.Movers then
-        ns.Movers[
+    return true
+end
+
+function ns.RefreshAllBarsFromProfile()
+    if InCombatLockdown() then
+        return false,
+            "combat"
+    end
+
+    if ns.LockAllBars then
+        ns.LockAllBars()
+    end
+
+    for barID, bar in pairs(
+        ns.Bars
+    ) do
+        local settings =
+            ns.db.bars[
+                barID
+            ]
+
+        if not settings then
+            UnregisterStateDriver(
+                bar,
+                "visibility"
+            )
+
+            bar:Hide()
+
+            local mover =
+                ns.Movers
+                and ns.Movers[
+                    barID
+                ]
+
+            if mover then
+                mover:Hide()
+            end
+
+            pendingUpdates[
+                barID
+            ] =
+                nil
+        end
+    end
+
+    for _, barID in ipairs(
+        ns.GetBarIDs()
+    ) do
+        if ns.Bars[
             barID
-        ] =
-            nil
+        ] then
+            ApplyBarUpdate(
+                barID
+            )
+        else
+            ns.CreateBar(
+                barID
+            )
+        end
+
+        local bar =
+            ns.Bars[
+                barID
+            ]
+
+        if bar then
+            for _, button in ipairs(
+                bar.buttons
+            ) do
+                if button.UpdateAssignment then
+                    button.UpdateAssignment()
+                end
+
+                if button.RefreshVisualState then
+                    button.RefreshVisualState()
+                end
+            end
+        end
     end
 
     if ns.ApplyAllKeybinds then
         ns.ApplyAllKeybinds()
+    end
+
+    if ns.RefreshConfig then
+        ns.RefreshConfig()
     end
 
     return true

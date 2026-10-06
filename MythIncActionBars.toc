@@ -20,6 +20,7 @@ Minimap.lua
 BlizzardBars.lua
 Media.lua
 ConfigWidgets.lua
+ConfigState.lua
 Mover.lua
 ConfigLayout.lua
 ConfigAppearance.lua

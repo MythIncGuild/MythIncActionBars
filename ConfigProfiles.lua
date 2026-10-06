@@ -28,6 +28,7 @@ function ns.CreateProfilesConfigPage(
         ns.GetCurrentProfileName()
 
     local profileButtons = {}
+    local profileButtonMap = {}
 
     local function SetFont(
         fontString,
@@ -49,37 +50,104 @@ function ns.CreateProfilesConfigPage(
         )
     end
 
-    local currentSection =
-        widgets.CreateSection(
-            page,
-            "CURRENT PROFILE",
-            1012,
-            108,
-            0,
-            0
-        )
+    local function TrimName(
+        value
+    )
+        if type(value) ~= "string" then
+            return ""
+        end
 
-    local currentName =
-        currentSection:CreateFontString(
+        return value:match(
+            "^%s*(.-)%s*$"
+        )
+    end
+
+    local title =
+        page:CreateFontString(
             nil,
             "OVERLAY"
         )
 
     SetFont(
-        currentName,
-        15
+        title,
+        16,
+        false
     )
 
-    currentName:SetPoint(
+    title:SetPoint(
         "TOPLEFT",
-        currentSection,
+        page,
         "TOPLEFT",
-        24,
+        8,
+        -4
+    )
+
+    title:SetText(
+        "Profiles"
+    )
+
+    local managementSection =
+        widgets.CreateSection(
+            page,
+            "Profile Management",
+            1012,
+            510,
+            0,
+            -48
+        )
+
+    local currentLabel =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        currentLabel,
+        15,
+        false
+    )
+
+    currentLabel:SetPoint(
+        "TOPLEFT",
+        managementSection,
+        "TOPLEFT",
+        22,
         -42
     )
 
+    currentLabel:SetText(
+        "Current profile:"
+    )
+
+    local currentName =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    currentName:SetFont(
+        font,
+        15,
+        "OUTLINE"
+    )
+
+    currentName:SetTextColor(
+        unpack(
+            colors.accent
+        )
+    )
+
+    currentName:SetPoint(
+        "LEFT",
+        currentLabel,
+        "RIGHT",
+        6,
+        0
+    )
+
     local characterText =
-        currentSection:CreateFontString(
+        managementSection:CreateFontString(
             nil,
             "OVERLAY"
         )
@@ -92,81 +160,197 @@ function ns.CreateProfilesConfigPage(
 
     characterText:SetPoint(
         "TOPLEFT",
-        currentName,
+        currentLabel,
         "BOTTOMLEFT",
         0,
         -8
     )
 
-    local listSection =
-        widgets.CreateSection(
-            page,
-            "PROFILES",
-            330,
-            430,
-            0,
-            -124
-        )
-
-    local actionsSection =
-        widgets.CreateSection(
-            page,
-            "PROFILE SETTINGS",
-            666,
-            430,
-            346,
-            -124
-        )
-
-    local selectedTitle =
-        actionsSection:CreateFontString(
+    local profilesHeading =
+        managementSection:CreateFontString(
             nil,
             "OVERLAY"
         )
 
     SetFont(
-        selectedTitle,
-        15
+        profilesHeading,
+        15,
+        false
     )
 
-    selectedTitle:SetPoint(
+    profilesHeading:SetPoint(
         "TOPLEFT",
-        actionsSection,
+        managementSection,
         "TOPLEFT",
-        24,
-        -42
+        22,
+        -112
     )
 
-    local selectedHint =
-        actionsSection:CreateFontString(
+    profilesHeading:SetText(
+        "Profiles"
+    )
+
+    local managementHeading =
+        managementSection:CreateFontString(
             nil,
             "OVERLAY"
         )
 
     SetFont(
-        selectedHint,
+        managementHeading,
+        15,
+        false
+    )
+
+    managementHeading:SetPoint(
+        "TOPLEFT",
+        managementSection,
+        "TOPLEFT",
+        414,
+        -112
+    )
+
+    managementHeading:SetText(
+        "Management"
+    )
+
+    local profileNameLabel =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        profileNameLabel,
+        10,
+        false
+    )
+
+    profileNameLabel:SetPoint(
+        "TOPLEFT",
+        managementHeading,
+        "BOTTOMLEFT",
+        0,
+        -18
+    )
+
+    profileNameLabel:SetText(
+        "Profile name"
+    )
+
+    local profileNameInput =
+        CreateFrame(
+            "EditBox",
+            nil,
+            managementSection,
+            "BackdropTemplate"
+        )
+
+    profileNameInput:SetSize(
+        370,
+        30
+    )
+
+    profileNameInput:SetPoint(
+        "TOPLEFT",
+        profileNameLabel,
+        "BOTTOMLEFT",
+        0,
+        -8
+    )
+
+    profileNameInput:SetAutoFocus(
+        false
+    )
+
+    profileNameInput:SetFont(
+        font,
+        11,
+        "OUTLINE"
+    )
+
+    profileNameInput:SetTextColor(
+        unpack(
+            colors.text
+        )
+    )
+
+    profileNameInput:SetTextInsets(
+        8,
+        8,
+        0,
+        0
+    )
+
+    profileNameInput:SetBackdrop({
+        bgFile =
+            "Interface\\Buttons\\WHITE8x8",
+
+        edgeFile =
+            "Interface\\Buttons\\WHITE8x8",
+
+        edgeSize =
+            1,
+    })
+
+    profileNameInput:SetBackdropColor(
+        0.05,
+        0.06,
+        0.07,
+        0.95
+    )
+
+    profileNameInput:SetBackdropBorderColor(
+        0.18,
+        0.20,
+        0.21,
+        1
+    )
+
+    profileNameInput:SetScript(
+        "OnEscapePressed",
+        function(self)
+            self:ClearFocus()
+        end
+    )
+
+    profileNameInput:SetScript(
+        "OnEnterPressed",
+        function(self)
+            self:ClearFocus()
+        end
+    )
+
+    local selectedText =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        selectedText,
         10,
         true
     )
 
-    selectedHint:SetPoint(
+    selectedText:SetPoint(
         "TOPLEFT",
-        selectedTitle,
-        "BOTTOMLEFT",
-        0,
-        -8
+        managementSection,
+        "TOPLEFT",
+        22,
+        -196
     )
 
-    selectedHint:SetWidth(
-        610
+    selectedText:SetWidth(
+        350
     )
 
-    selectedHint:SetJustifyH(
+    selectedText:SetJustifyH(
         "LEFT"
     )
 
     local statusText =
-        actionsSection:CreateFontString(
+        managementSection:CreateFontString(
             nil,
             "OVERLAY"
         )
@@ -178,177 +362,26 @@ function ns.CreateProfilesConfigPage(
     )
 
     statusText:SetPoint(
-        "BOTTOMLEFT",
-        actionsSection,
-        "BOTTOMLEFT",
-        24,
-        18
+        "TOPLEFT",
+        managementSection,
+        "TOPLEFT",
+        414,
+        -298
     )
 
     statusText:SetWidth(
-        610
+        370
     )
 
     statusText:SetJustifyH(
         "LEFT"
     )
 
-    local function CreateInput(
-        y
-    )
-        local editBox =
-            CreateFrame(
-                "EditBox",
-                nil,
-                actionsSection,
-                "BackdropTemplate"
-            )
-
-        editBox:SetSize(
-            360,
-            30
-        )
-
-        editBox:SetPoint(
-            "TOPLEFT",
-            actionsSection,
-            "TOPLEFT",
-            24,
-            y
-        )
-
-        editBox:SetAutoFocus(
-            false
-        )
-
-        editBox:SetFont(
-            font,
-            11,
-            "OUTLINE"
-        )
-
-        editBox:SetTextColor(
-            unpack(
-                colors.text
-            )
-        )
-
-        editBox:SetTextInsets(
-            8,
-            8,
-            0,
-            0
-        )
-
-        editBox:SetBackdrop({
-            bgFile =
-                "Interface\\Buttons\\WHITE8x8",
-
-            edgeFile =
-                "Interface\\Buttons\\WHITE8x8",
-
-            edgeSize =
-                1,
-        })
-
-        editBox:SetBackdropColor(
-            0.05,
-            0.06,
-            0.07,
-            0.95
-        )
-
-        editBox:SetBackdropBorderColor(
-            0.18,
-            0.20,
-            0.21,
-            1
-        )
-
-        editBox:SetScript(
-            "OnEscapePressed",
-            function(self)
-                self:ClearFocus()
-            end
-        )
-
-        return editBox
-    end
-
-    local newNameLabel =
-        actionsSection:CreateFontString(
-            nil,
-            "OVERLAY"
-        )
-
-    SetFont(
-        newNameLabel,
-        10,
-        true
-    )
-
-    newNameLabel:SetPoint(
-        "TOPLEFT",
-        actionsSection,
-        "TOPLEFT",
-        24,
-        -104
-    )
-
-    newNameLabel:SetText(
-        "New Profile Name"
-    )
-
-    local newNameInput =
-        CreateInput(
-            -124
-        )
-
-    local renameLabel =
-        actionsSection:CreateFontString(
-            nil,
-            "OVERLAY"
-        )
-
-    SetFont(
-        renameLabel,
-        10,
-        true
-    )
-
-    renameLabel:SetPoint(
-        "TOPLEFT",
-        actionsSection,
-        "TOPLEFT",
-        24,
-        -216
-    )
-
-    renameLabel:SetText(
-        "Rename Selected Profile"
-    )
-
-    local renameInput =
-        CreateInput(
-            -236
-        )
-
     local useButton
     local createButton
     local copyButton
     local renameButton
     local deleteButton
-
-    local function ClearProfileButtons()
-        for _, button in ipairs(
-            profileButtons
-        ) do
-            button:Hide()
-            button:SetParent(nil)
-        end
-
-        profileButtons = {}
-    end
 
     local function SetStatus(
         text
@@ -359,36 +392,75 @@ function ns.CreateProfilesConfigPage(
         )
     end
 
-    local function RefreshButtons()
+    local function ClearProfileButtons()
+        for _, button in ipairs(
+            profileButtons
+        ) do
+            button:Hide()
+            button:SetParent(nil)
+        end
+
+        profileButtons = {}
+        profileButtonMap = {}
+    end
+
+    local function ProfileExists(
+        profileName
+    )
+        if ns.ProfileExists then
+            return ns.ProfileExists(
+                profileName
+            )
+        end
+
+        return ns.rootDB
+            and ns.rootDB.profiles
+            and ns.rootDB.profiles[
+                profileName
+            ] ~= nil
+    end
+
+    local function RefreshSelection()
+        local current =
+            ns.GetCurrentProfileName()
+
         if not selectedProfile
-            or not ns.ProfileExists(
+            or not ProfileExists(
                 selectedProfile
             )
         then
             selectedProfile =
-                ns.GetCurrentProfileName()
+                current
         end
 
-        selectedTitle:SetText(
+        local isCurrent =
             selectedProfile
-        )
-
-        local current =
-            ns.GetCurrentProfileName()
-
-        if selectedProfile
             == current
-        then
-            selectedHint:SetText(
-                "This profile is currently active for this character."
-            )
 
+        if isCurrent then
+            selectedText:SetText(
+                selectedProfile
+                    .. " is already active."
+            )
+        else
+            selectedText:SetText(
+                "Selected: "
+                    .. selectedProfile
+            )
+        end
+
+        for profileName, button in pairs(
+            profileButtonMap
+        ) do
+            button:SetSelected(
+                profileName
+                    == selectedProfile
+            )
+        end
+
+        if isCurrent then
             useButton:Disable()
         else
-            selectedHint:SetText(
-                "Use this profile on the current character. Switching profiles reloads the UI."
-            )
-
             useButton:Enable()
         end
 
@@ -400,30 +472,16 @@ function ns.CreateProfilesConfigPage(
         else
             renameButton:Enable()
 
-            if selectedProfile
-                == current
-            then
+            if isCurrent then
                 deleteButton:Disable()
             else
                 deleteButton:Enable()
             end
         end
-
-        for profileName, button in pairs(
-            page.ProfileButtonMap
-            or {}
-        ) do
-            button:SetSelected(
-                profileName
-                    == selectedProfile
-            )
-        end
     end
 
     local function RefreshProfileList()
         ClearProfileButtons()
-
-        page.ProfileButtonMap = {}
 
         local names =
             ns.GetProfileNames()
@@ -431,14 +489,23 @@ function ns.CreateProfilesConfigPage(
         for index, profileName in ipairs(
             names
         ) do
+            local prefix = ""
+
+            if profileName
+                == ns.GetCurrentProfileName()
+            then
+                prefix = "* "
+            end
+
             local button =
                 widgets.CreateTabButton(
-                    listSection,
-                    profileName,
-                    286,
+                    managementSection,
+                    prefix
+                        .. profileName,
+                    350,
                     30,
-                    18,
-                    -42
+                    22,
+                    -258
                         - (
                             (index - 1)
                             * 36
@@ -447,13 +514,13 @@ function ns.CreateProfilesConfigPage(
                         selectedProfile =
                             profileName
 
-                        renameInput:SetText(
+                        profileNameInput:SetText(
                             profileName
                         )
 
                         SetStatus("")
 
-                        RefreshButtons()
+                        RefreshSelection()
                     end
                 )
 
@@ -462,52 +529,164 @@ function ns.CreateProfilesConfigPage(
             ] =
                 button
 
-            page.ProfileButtonMap[
+            profileButtonMap[
                 profileName
             ] =
                 button
         end
 
-        RefreshButtons()
+        RefreshSelection()
     end
 
     useButton =
-        widgets.CreateButton(
-            actionsSection,
-            "Use Profile",
-            150,
-            30,
-            490,
-            -48,
-            function()
-                local success =
-                    ns.SetActiveProfile(
+    widgets.CreateButton(
+        managementSection,
+        "Use Selected Profile",
+        220,
+        34,
+        22,
+        -136,
+        function()
+            if not selectedProfile then
+                return
+            end
+
+            if selectedProfile
+                == ns.GetCurrentProfileName()
+            then
+                return
+            end
+
+            if InCombatLockdown() then
+                SetStatus(
+                    "Profiles cannot be changed during combat."
+                )
+
+                return
+            end
+
+            local function SwitchProfile()
+                local success,
+                    reason =
+                    ns.SwitchProfileLive(
                         selectedProfile
                     )
 
                 if not success then
-                    SetStatus(
-                        "Unable to activate that profile."
-                    )
+                    if reason == "combat" then
+                        SetStatus(
+                            "Profiles cannot be changed during combat."
+                        )
+                    else
+                        SetStatus(
+                            "Unable to activate that profile."
+                        )
+                    end
 
+                    return false
+                end
+
+                selectedProfile =
+                    ns.GetCurrentProfileName()
+
+                profileNameInput:SetText(
+                    selectedProfile
+                )
+
+                SetStatus(
+                    "Profile activated."
+                )
+
+                page:Refresh()
+
+                return true
+            end
+
+            if ns.HasConfigChanges
+                and ns.HasConfigChanges()
+            then
+                if not ns.ShowConfigConfirmation then
                     return
                 end
 
-                ReloadUI()
+                local targetProfile =
+                    selectedProfile
+
+                ns.ShowConfigConfirmation({
+                    title =
+                        "Switch Profile",
+
+                    message =
+                        "You have unapplied changes in the current profile.",
+
+                    buttons = {
+                        {
+                            text =
+                                "Apply & Switch",
+
+                            action =
+                                function()
+                                    ns.ApplyConfigChanges()
+
+                                    selectedProfile =
+                                        targetProfile
+
+                                    return SwitchProfile()
+                                end,
+                        },
+                        {
+                            text =
+                                "Revert & Switch",
+
+                            action =
+                                function()
+                                    local success,
+                                        reason =
+                                        ns.RevertConfigChanges()
+
+                                    if not success then
+                                        if reason == "combat" then
+                                            SetStatus(
+                                                "Changes cannot be reverted during combat."
+                                            )
+                                        end
+
+                                        return false
+                                    end
+
+                                    selectedProfile =
+                                        targetProfile
+
+                                    return SwitchProfile()
+                                end,
+                        },
+                        {
+                            text =
+                                "Cancel",
+                        },
+                    },
+                })
+
+                return
             end
-        )
+
+            SwitchProfile()
+        end
+    )
 
     createButton =
         widgets.CreateButton(
-            actionsSection,
+            managementSection,
             "Create New",
-            120,
-            30,
-            400,
-            -124,
+            148,
+            34,
+            414,
+            -206,
             function()
                 local name =
-                    newNameInput:GetText()
+                    TrimName(
+                        profileNameInput:GetText()
+                    )
 
                 local success,
                     reason =
@@ -516,15 +695,13 @@ function ns.CreateProfilesConfigPage(
                     )
 
                 if not success then
-                    if reason
-                        == "exists"
-                    then
+                    if reason == "exists" then
                         SetStatus(
-                            "A profile with that name already exists."
+                            "That profile already exists."
                         )
                     else
                         SetStatus(
-                            "Enter a profile name first."
+                            "Enter a profile name."
                         )
                     end
 
@@ -532,14 +709,10 @@ function ns.CreateProfilesConfigPage(
                 end
 
                 selectedProfile =
-                    name:match(
-                        "^%s*(.-)%s*$"
-                    )
+                    name
 
-                newNameInput:SetText("")
-
-                renameInput:SetText(
-                    selectedProfile
+                profileNameInput:SetText(
+                    name
                 )
 
                 SetStatus(
@@ -552,41 +725,41 @@ function ns.CreateProfilesConfigPage(
 
     copyButton =
         widgets.CreateButton(
-            actionsSection,
-            "Copy Selected",
-            120,
-            30,
-            526,
-            -124,
+            managementSection,
+            "Copy Current",
+            148,
+            34,
+            572,
+            -206,
             function()
                 local name =
-                    newNameInput:GetText()
+                    TrimName(
+                        profileNameInput:GetText()
+                    )
+
+                if name == "" then
+                    SetStatus(
+                        "Enter a profile name."
+                    )
+
+                    return
+                end
 
                 local success,
                     reason =
                     ns.CopyProfile(
-                        selectedProfile,
+                        ns.GetCurrentProfileName(),
                         name
                     )
 
                 if not success then
-                    if reason
-                        == "exists"
-                    then
+                    if reason == "exists" then
                         SetStatus(
-                            "A profile with that name already exists."
+                            "That profile already exists."
                         )
-
-                    elseif reason
-                        == "empty"
-                    then
-                        SetStatus(
-                            "Enter a new profile name first."
-                        )
-
                     else
                         SetStatus(
-                            "Unable to copy that profile."
+                            "Unable to copy the profile."
                         )
                     end
 
@@ -594,14 +767,10 @@ function ns.CreateProfilesConfigPage(
                 end
 
                 selectedProfile =
-                    name:match(
-                        "^%s*(.-)%s*$"
-                    )
+                    name
 
-                newNameInput:SetText("")
-
-                renameInput:SetText(
-                    selectedProfile
+                profileNameInput:SetText(
+                    name
                 )
 
                 SetStatus(
@@ -614,50 +783,47 @@ function ns.CreateProfilesConfigPage(
 
     renameButton =
         widgets.CreateButton(
-            actionsSection,
-            "Rename",
-            120,
-            30,
-            400,
-            -236,
+            managementSection,
+            "Rename Selected",
+            148,
+            34,
+            414,
+            -248,
             function()
-                local oldName =
-                    selectedProfile
+                if not selectedProfile then
+                    return
+                end
 
                 local newName =
-                    renameInput:GetText()
+                    TrimName(
+                        profileNameInput:GetText()
+                    )
 
                 local wasActive =
-                    oldName
+                    selectedProfile
                     == ns.GetCurrentProfileName()
 
                 local success,
                     reason =
                     ns.RenameProfile(
-                        oldName,
+                        selectedProfile,
                         newName
                     )
 
                 if not success then
-                    if reason
-                        == "default"
-                    then
+                    if reason == "default" then
                         SetStatus(
-                            "The Default profile cannot be renamed."
+                            "Default cannot be renamed."
                         )
 
-                    elseif reason
-                        == "exists"
-                    then
+                    elseif reason == "exists" then
                         SetStatus(
-                            "A profile with that name already exists."
+                            "That profile already exists."
                         )
 
-                    elseif reason
-                        == "empty"
-                    then
+                    elseif reason == "empty" then
                         SetStatus(
-                            "Enter a new profile name first."
+                            "Enter a profile name."
                         )
 
                     else
@@ -670,12 +836,10 @@ function ns.CreateProfilesConfigPage(
                 end
 
                 selectedProfile =
-                    newName:match(
-                        "^%s*(.-)%s*$"
-                    )
+                    newName
 
-                SetStatus(
-                    "Profile renamed."
+                profileNameInput:SetText(
+                    newName
                 )
 
                 if wasActive then
@@ -683,36 +847,80 @@ function ns.CreateProfilesConfigPage(
                     return
                 end
 
+                SetStatus(
+                    "Profile renamed."
+                )
+
                 RefreshProfileList()
             end
         )
 
     deleteButton =
-        widgets.CreateButton(
-            actionsSection,
-            "Delete",
-            120,
-            30,
-            526,
-            -236,
-            function()
-                local profileToDelete =
-                    selectedProfile
+    widgets.CreateButton(
+        managementSection,
+        "Delete Selected",
+        148,
+        34,
+        572,
+        -248,
+        function()
+            if not selectedProfile then
+                return
+            end
 
-                StaticPopup_Show(
-                    "MYTHINC_ACTIONBARS_DELETE_PROFILE",
-                    profileToDelete,
-                    nil,
+            if not ns.ShowConfigConfirmation then
+                return
+            end
+
+            local profileToDelete =
+                selectedProfile
+
+            ns.ShowConfigConfirmation({
+                title =
+                    "Delete Profile",
+
+                message =
+                    "Delete profile \""
+                    .. profileToDelete
+                    .. "\"?\n\nThis cannot be undone.",
+
+                buttons = {
                     {
-                        profileName =
-                            profileToDelete,
+                        text =
+                            "Delete",
 
-                        callback =
+                        action =
                             function()
+                                local success,
+                                    reason =
+                                    ns.DeleteProfile(
+                                        profileToDelete
+                                    )
+
+                                if not success then
+                                    if reason == "default" then
+                                        SetStatus(
+                                            "Default cannot be deleted."
+                                        )
+
+                                    elseif reason == "active" then
+                                        SetStatus(
+                                            "The active profile cannot be deleted."
+                                        )
+
+                                    else
+                                        SetStatus(
+                                            "Unable to delete that profile."
+                                        )
+                                    end
+
+                                    return false
+                                end
+
                                 selectedProfile =
                                     ns.GetCurrentProfileName()
 
-                                renameInput:SetText(
+                                profileNameInput:SetText(
                                     selectedProfile
                                 )
 
@@ -721,83 +929,134 @@ function ns.CreateProfilesConfigPage(
                                 )
 
                                 RefreshProfileList()
+
+                                return true
                             end,
-                    }
-                )
+                    },
+                    {
+                        text =
+                            "Cancel",
+                    },
+                },
+            })
+        end
+    )
+
+    local sharingHeading =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        sharingHeading,
+        15,
+        false
+    )
+
+    sharingHeading:SetPoint(
+        "TOPLEFT",
+        managementSection,
+        "TOPLEFT",
+        414,
+        -354
+    )
+
+    sharingHeading:SetText(
+        "Sharing"
+    )
+
+    local exportButton =
+        widgets.CreateButton(
+            managementSection,
+            "Export",
+            148,
+            34,
+            414,
+            -392,
+            function()
             end
         )
 
-    StaticPopupDialogs[
-        "MYTHINC_ACTIONBARS_DELETE_PROFILE"
-    ] = {
-        text =
-            "Delete profile \"%s\"?\n\nThis cannot be undone.",
+    exportButton:Disable()
 
-        button1 =
-            "Delete",
+    local importButton =
+        widgets.CreateButton(
+            managementSection,
+            "Import",
+            148,
+            34,
+            572,
+            -392,
+            function()
+            end
+        )
 
-        button2 =
-            "Cancel",
+    importButton:Disable()
 
-        timeout =
-            0,
+    local sharingStatus =
+        managementSection:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
 
-        whileDead =
-            true,
+    SetFont(
+        sharingStatus,
+        10,
+        true
+    )
 
-        hideOnEscape =
-            true,
+    sharingStatus:SetPoint(
+        "TOPLEFT",
+        managementSection,
+        "TOPLEFT",
+        414,
+        -442
+    )
 
-        preferredIndex =
-            3,
-
-        OnAccept =
-            function(
-                self,
-                data
-            )
-                if not data
-                    or not data.profileName
-                then
-                    return
-                end
-
-                local success =
-                    ns.DeleteProfile(
-                        data.profileName
-                    )
-
-                if success
-                    and data.callback
-                then
-                    data.callback()
-                end
-            end,
-    }
+    sharingStatus:SetText(
+        "Profile sharing will be added in a future update."
+    )
 
     page.Refresh =
         function()
-            local active =
+            local current =
                 ns.GetCurrentProfileName()
 
             currentName:SetText(
-                active
+                current
             )
 
-            characterText:SetText(
-                ns.GetCharacterProfileKey()
-            )
+            if ns.GetCharacterProfileKey then
+                characterText:SetText(
+                    "Character: "
+                        .. ns.GetCharacterProfileKey()
+                )
+            else
+                characterText:SetText(
+                    "Character: "
+                        .. (
+                            UnitName("player")
+                            or ""
+                        )
+                        .. " - "
+                        .. (
+                            GetRealmName()
+                            or ""
+                        )
+                )
+            end
 
             if not selectedProfile
-                or not ns.ProfileExists(
+                or not ProfileExists(
                     selectedProfile
                 )
             then
                 selectedProfile =
-                    active
+                    current
             end
 
-            renameInput:SetText(
+            profileNameInput:SetText(
                 selectedProfile
             )
 

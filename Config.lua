@@ -8,6 +8,18 @@ local font = media.font
 local panel
 local SelectBar
 local SetTopLevelMode
+local RequestCloseConfig
+
+local confirmationDialog
+local confirmationOverlay
+local confirmationTitle
+local confirmationMessage
+local confirmationButtons = {}
+local confirmationActions = {}
+local confirmationButtonCount = 0
+
+local allowConfigClose = false
+local suppressNextSessionStart = false
 
 local selectedBarID = 1
 local selectedCategory = "Layout"
@@ -47,6 +59,9 @@ local nameControl
 local resetButton
 local deleteButton
 local addButton
+local applyChangesButton
+local revertChangesButton
+local resetAllButton
 
 local minimizeButton
 local logoTexture
@@ -587,18 +602,18 @@ local function RefreshControls()
     end
 
     if unlockAllButton then
-    if ns.IsMoveModeActive()
-        or ns.AreAllEnabledBarsUnlocked()
-    then
-        unlockAllButton:SetText(
-            "Lock All Bars"
-        )
-    else
-        unlockAllButton:SetText(
-            "Unlock All Bars"
-        )
+        if ns.IsMoveModeActive()
+            or ns.AreAllEnabledBarsUnlocked()
+        then
+            unlockAllButton:SetText(
+                "Lock All Bars"
+            )
+        else
+            unlockAllButton:SetText(
+                "Unlock All Bars"
+            )
+        end
     end
-end
 
     if deleteButton then
         deleteButton:SetShown(
@@ -654,6 +669,23 @@ function ns.RefreshConfig()
         return
     end
 
+    if not ns.db.bars[
+        selectedBarID
+    ] then
+        local ids =
+            ns.GetBarIDs()
+
+        selectedBarID =
+            ids[1]
+            or 1
+
+        barSelectorOffset =
+            0
+
+        EnsureSelectedBarVisible()
+        RefreshBarSelector()
+    end
+
     RefreshControls()
 end
 
@@ -671,15 +703,15 @@ SelectBar =
             selectedBarID
 
         if not ns.IsMoveModeActive()
-    and ns.IsBarUnlocked(
-        oldBarID
-    )
-then
-    ns.SetBarUnlocked(
-        oldBarID,
-        false
-    )
-end
+            and ns.IsBarUnlocked(
+                oldBarID
+            )
+        then
+            ns.SetBarUnlocked(
+                oldBarID,
+                false
+            )
+        end
 
         selectedBarID =
             barID
@@ -939,74 +971,6 @@ local function ResetSelectedBar()
     RefreshControls()
 end
 
-StaticPopupDialogs[
-    "MYTHINC_ACTIONBARS_DELETE_BAR"
-] = {
-    text =
-        "Delete %s?\n\nAll actions and settings stored on this custom bar will be permanently removed.",
-
-    button1 =
-        "Delete",
-
-    button2 =
-        "Cancel",
-
-    timeout =
-        0,
-
-    whileDead =
-        true,
-
-    hideOnEscape =
-        true,
-
-    preferredIndex =
-        3,
-
-    OnAccept =
-        function(
-            self,
-            data
-        )
-            if not data
-                or not data.barID
-            then
-                return
-            end
-
-            local barID =
-                data.barID
-
-            local success,
-                reason =
-                ns.DeleteBar(
-                    barID
-                )
-
-            if not success then
-                if reason
-                    == "combat"
-                then
-                    print(
-                        "|cff7fd5ffMythInc Action Bars:|r Cannot delete an action bar during combat."
-                    )
-                end
-
-                return
-            end
-
-            selectedBarID =
-                GetFallbackBarID(
-                    barID
-                )
-                or 1
-
-            EnsureSelectedBarVisible()
-            RefreshBarSelector()
-            RefreshControls()
-        end,
-}
-
 local function FitConfigToScreen()
     if not panel then
         return
@@ -1052,27 +1016,26 @@ SetTopLevelMode =
 
         if actionBarsTab then
             actionBarsTab:SetSelected(
-                mode
-                    == "Action Bars"
+                mode == "Action Bars"
             )
         end
 
         if profilesTab then
             profilesTab:SetSelected(
-                mode
-                    == "Profiles"
+                mode == "Profiles"
             )
         end
 
         local showActionBars =
             not isMinimized
-            and mode
-                == "Action Bars"
+            and mode == "Action Bars"
 
         local showProfiles =
             not isMinimized
-            and mode
-                == "Profiles"
+            and mode == "Profiles"
+
+        local showWindowActions =
+            not isMinimized
 
         if barSelectorSection then
             barSelectorSection:SetShown(
@@ -1122,8 +1085,27 @@ SetTopLevelMode =
             )
         end
 
+        if applyChangesButton then
+            applyChangesButton:SetShown(
+                showWindowActions
+            )
+        end
+
+        if revertChangesButton then
+            revertChangesButton:SetShown(
+                showWindowActions
+            )
+        end
+
+        if resetAllButton then
+            resetAllButton:SetShown(
+                showWindowActions
+            )
+        end
+
         if showActionBars then
             RefreshControls()
+
         elseif showProfiles
             and profilesPage
             and profilesPage.Refresh
@@ -1162,6 +1144,574 @@ local function SetMinimized(
 
     FitConfigToScreen()
 end
+
+local function HideConfirmationDialog()
+    if confirmationDialog then
+        confirmationDialog:Hide()
+    end
+
+    if confirmationOverlay then
+        confirmationOverlay:Hide()
+    end
+
+    confirmationActions = {}
+    confirmationButtonCount = 0
+end
+
+local function RunConfirmationAction(
+    index
+)
+    local action =
+        confirmationActions[
+            index
+        ]
+
+    if action then
+        local shouldClose =
+            action()
+
+        if shouldClose == false then
+            return
+        end
+    end
+
+    HideConfirmationDialog()
+end
+
+local function CreateConfirmationDialog()
+    if confirmationDialog then
+        return confirmationDialog
+    end
+
+    confirmationOverlay =
+        CreateFrame(
+            "Frame",
+            nil,
+            panel
+        )
+
+    confirmationOverlay:SetAllPoints(
+        panel
+    )
+
+    confirmationOverlay:SetFrameLevel(
+        panel:GetFrameLevel()
+        + 90
+    )
+
+    confirmationOverlay:EnableMouse(
+        true
+    )
+
+    local dim =
+        confirmationOverlay:CreateTexture(
+            nil,
+            "BACKGROUND"
+        )
+
+    dim:SetAllPoints()
+
+    dim:SetColorTexture(
+        0,
+        0,
+        0,
+        0.58
+    )
+
+    confirmationDialog =
+        CreateFrame(
+            "Frame",
+            nil,
+            confirmationOverlay,
+            "BackdropTemplate"
+        )
+
+    confirmationDialog:SetSize(
+        560,
+        210
+    )
+
+    confirmationDialog:SetPoint(
+        "CENTER",
+        panel,
+        "CENTER",
+        0,
+        20
+    )
+
+    confirmationDialog:SetFrameLevel(
+        confirmationOverlay:GetFrameLevel()
+        + 10
+    )
+
+    widgets.SetBackdrop(
+        confirmationDialog,
+        colors.background
+    )
+
+    confirmationTitle =
+        confirmationDialog:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        confirmationTitle,
+        16,
+        false
+    )
+
+    confirmationTitle:SetPoint(
+        "TOPLEFT",
+        confirmationDialog,
+        "TOPLEFT",
+        22,
+        -20
+    )
+
+    confirmationMessage =
+        confirmationDialog:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        confirmationMessage,
+        11,
+        true
+    )
+
+    confirmationMessage:SetPoint(
+        "TOPLEFT",
+        confirmationTitle,
+        "BOTTOMLEFT",
+        0,
+        -16
+    )
+
+    confirmationMessage:SetWidth(
+        516
+    )
+
+    confirmationMessage:SetJustifyH(
+        "LEFT"
+    )
+
+    confirmationMessage:SetJustifyV(
+        "TOP"
+    )
+
+    for index = 1, 3 do
+        local buttonIndex =
+            index
+
+        confirmationButtons[
+            index
+        ] =
+            widgets.CreateButton(
+                confirmationDialog,
+                "",
+                150,
+                34,
+                0,
+                -152,
+                function()
+                    RunConfirmationAction(
+                        buttonIndex
+                    )
+                end
+            )
+
+        confirmationButtons[
+            index
+        ]:Hide()
+    end
+
+    confirmationDialog:EnableKeyboard(
+        true
+    )
+
+    confirmationDialog:SetPropagateKeyboardInput(
+        false
+    )
+
+    confirmationDialog:SetScript(
+        "OnKeyDown",
+        function(
+            self,
+            key
+        )
+            if key == "ESCAPE" then
+                if confirmationButtonCount > 0 then
+                    RunConfirmationAction(
+                        confirmationButtonCount
+                    )
+                else
+                    HideConfirmationDialog()
+                end
+
+                return
+            end
+
+            if key == "ENTER"
+                and confirmationButtonCount > 0
+            then
+                RunConfirmationAction(
+                    1
+                )
+            end
+        end
+    )
+
+    confirmationOverlay:Hide()
+    confirmationDialog:Hide()
+
+    return confirmationDialog
+end
+
+local function ShowConfirmationDialog(
+    options
+)
+    CreateConfirmationDialog()
+
+    confirmationTitle:SetText(
+        options.title
+        or "Confirm"
+    )
+
+    confirmationMessage:SetText(
+        options.message
+        or ""
+    )
+
+    confirmationActions = {}
+
+    local buttons =
+        options.buttons
+        or {}
+
+    confirmationButtonCount =
+        math.min(
+            3,
+            #buttons
+        )
+
+    for index = 1, 3 do
+        local button =
+            confirmationButtons[
+                index
+            ]
+
+        button:Hide()
+        confirmationActions[
+            index
+        ] =
+            nil
+    end
+
+    local positions
+
+    if confirmationButtonCount == 1 then
+        positions = {
+            205,
+        }
+
+    elseif confirmationButtonCount == 2 then
+        positions = {
+            116,
+            294,
+        }
+
+    else
+        positions = {
+            34,
+            205,
+            376,
+        }
+    end
+
+    for index = 1, confirmationButtonCount do
+        local definition =
+            buttons[
+                index
+            ]
+
+        local button =
+            confirmationButtons[
+                index
+            ]
+
+        button:ClearAllPoints()
+
+        button:SetPoint(
+            "TOPLEFT",
+            confirmationDialog,
+            "TOPLEFT",
+            positions[
+                index
+            ],
+            -152
+        )
+
+        button:SetText(
+            definition.text
+            or "Okay"
+        )
+
+        confirmationActions[
+            index
+        ] =
+            definition.action
+
+        button:Show()
+    end
+
+    confirmationOverlay:Show()
+    confirmationDialog:Show()
+
+    confirmationDialog:SetFrameLevel(
+        confirmationOverlay:GetFrameLevel()
+        + 10
+    )
+end
+
+ns.ShowConfigConfirmation =
+    ShowConfirmationDialog
+
+local function ShowDeleteBarConfirmation(
+    barID,
+    barName
+)
+    ShowConfirmationDialog({
+        title =
+            "Delete Bar",
+
+        message =
+            "Delete \""
+            .. barName
+            .. "\"?\n\nAll actions and settings stored on this custom bar will be permanently removed.",
+
+        buttons = {
+            {
+                text =
+                    "Delete",
+
+                action =
+                    function()
+                        local success,
+                            reason =
+                            ns.DeleteBar(
+                                barID
+                            )
+
+                        if not success then
+                            if reason
+                                == "combat"
+                            then
+                                print(
+                                    "|cff7fd5ffMythInc Action Bars:|r Cannot delete an action bar during combat."
+                                )
+                            end
+
+                            return false
+                        end
+
+                        selectedBarID =
+                            GetFallbackBarID(
+                                barID
+                            )
+                            or 1
+
+                        EnsureSelectedBarVisible()
+                        RefreshBarSelector()
+                        RefreshControls()
+
+                        return true
+                    end,
+            },
+            {
+                text =
+                    "Cancel",
+            },
+        },
+    })
+end
+
+local function ShowRevertConfirmation()
+    ShowConfirmationDialog({
+        title =
+            "Revert Changes",
+
+        message =
+            "Revert changes to the active profile?\n\nSettings will return to the last applied state.",
+
+        buttons = {
+            {
+                text =
+                    "Revert Changes",
+
+                action =
+                    function()
+                        if ns.LockAllBars then
+                            ns.LockAllBars()
+                        end
+
+                        local success,
+                            reason =
+                            ns.RevertConfigChanges()
+
+                        if not success then
+                            if reason
+                                == "combat"
+                            then
+                                print(
+                                    "|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat."
+                                )
+                            end
+
+                            return false
+                        end
+
+                        return true
+                    end,
+            },
+            {
+                text =
+                    "Cancel",
+            },
+        },
+    })
+end
+
+local function ShowResetAllConfirmation()
+    ShowConfirmationDialog({
+        title =
+            "Reset All",
+
+        message =
+            "Reset the active profile to defaults?\n\nAll action bar settings, custom bars, assignments, and keybinds in this profile will be reset.",
+
+        buttons = {
+            {
+                text =
+                    "Reset All",
+
+                action =
+                    function()
+                        if ns.LockAllBars then
+                            ns.LockAllBars()
+                        end
+
+                        local success,
+                            reason =
+                            ns.ResetActiveProfileToDefaults()
+
+                        if not success then
+                            if reason
+                                == "combat"
+                            then
+                                print(
+                                    "|cff7fd5ffMythInc Action Bars:|r The active profile cannot be reset during combat."
+                                )
+                            end
+
+                            return false
+                        end
+
+                        return true
+                    end,
+            },
+            {
+                text =
+                    "Cancel",
+            },
+        },
+    })
+end
+
+local function ShowUnappliedChangesDialog()
+    ShowConfirmationDialog({
+        title =
+            "Unapplied Changes",
+
+        message =
+            "You have changes that have not been applied. What would you like to do?",
+
+        buttons = {
+            {
+                text =
+                    "Apply Changes",
+
+                action =
+                    function()
+                        ns.ApplyConfigChanges()
+
+                        allowConfigClose =
+                            true
+
+                        panel:Hide()
+
+                        return true
+                    end,
+            },
+            {
+                text =
+                    "Revert Changes",
+
+                action =
+                    function()
+                        local success,
+                            reason =
+                            ns.RevertConfigChanges()
+
+                        if not success then
+                            if reason
+                                == "combat"
+                            then
+                                print(
+                                    "|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat."
+                                )
+                            end
+
+                            return false
+                        end
+
+                        allowConfigClose =
+                            true
+
+                        panel:Hide()
+
+                        return true
+                    end,
+            },
+            {
+                text =
+                    "Cancel",
+            },
+        },
+    })
+end
+
+RequestCloseConfig =
+    function()
+        if not panel
+            or not panel:IsShown()
+        then
+            return
+        end
+
+        if ns.HasConfigChanges
+            and ns.HasConfigChanges()
+        then
+            ShowUnappliedChangesDialog()
+            return
+        end
+
+        allowConfigClose =
+            true
+
+        panel:Hide()
+    end
 
 local function CreateHeader()
     logoTexture =
@@ -1242,7 +1792,7 @@ local function CreateHeader()
         WINDOW_WIDTH - 38,
         -10,
         function()
-            panel:Hide()
+            RequestCloseConfig()
         end
     )
 
@@ -1361,6 +1911,7 @@ local function CreateBarSelector()
                         barSelectorOffset
                             + 1
                     )
+
             elseif delta > 0 then
                 barSelectorOffset =
                     math.max(
@@ -1431,31 +1982,32 @@ local function CreateBarSelector()
                 )
             end
         )
+
     unlockAllButton =
-    widgets.CreateButton(
-        barSelectorSection,
-        "Unlock All Bars",
-        150,
-        30,
-        866,
-        -50,
-        function()
-            local success,
-                reason =
-                ns.ToggleAllBarsUnlocked()
+        widgets.CreateButton(
+            barSelectorSection,
+            "Unlock All Bars",
+            150,
+            30,
+            866,
+            -50,
+            function()
+                local success,
+                    reason =
+                    ns.ToggleAllBarsUnlocked()
 
-            if not success
-                and reason
-                    == "combat"
-            then
-                print(
-                    "|cff7fd5ffMythInc Action Bars:|r Bars cannot be unlocked during combat."
-                )
+                if not success
+                    and reason
+                        == "combat"
+                then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r Bars cannot be unlocked during combat."
+                    )
+                end
+
+                RefreshControls()
             end
-
-            RefreshControls()
-        end
-    )
+        )
 end
 
 local function CreateSelectedBarHeader()
@@ -1789,13 +2341,62 @@ local function CreateProfilesHost()
 end
 
 local function CreateBottomActions()
+    applyChangesButton =
+        widgets.CreateButton(
+            panel,
+            "Apply Changes",
+            146,
+            30,
+            22,
+            -(WINDOW_HEIGHT - 46),
+            function()
+                local success =
+                    ns.ApplyConfigChanges()
+
+                if success then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r Changes applied."
+                    )
+                end
+            end
+        )
+
+    revertChangesButton =
+        widgets.CreateButton(
+            panel,
+            "Revert Changes",
+            146,
+            30,
+            178,
+            -(WINDOW_HEIGHT - 46),
+            function()
+                if InCombatLockdown() then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat."
+                    )
+
+                    return
+                end
+
+                if not ns.CanRevertConfigChanges() then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r There is no saved state to revert to."
+                    )
+
+                    return
+                end
+
+                ShowRevertConfirmation()
+            end
+        )
+
     resetButton =
         widgets.CreateButton(
             panel,
             "Reset Bar",
-            150,
+            130,
             30,
-            22,
+            346,
             -(WINDOW_HEIGHT - 46),
             function()
                 ResetSelectedBar()
@@ -1806,17 +2407,16 @@ local function CreateBottomActions()
         widgets.CreateButton(
             panel,
             "Delete Bar",
-            150,
+            130,
             30,
-            184,
+            486,
             -(WINDOW_HEIGHT - 46),
             function()
                 local settings =
                     GetSelectedSettings()
 
                 if not settings
-                    or settings.source
-                        ~= "custom"
+                    or settings.source ~= "custom"
                 then
                     return
                 end
@@ -1829,15 +2429,31 @@ local function CreateBottomActions()
                     return
                 end
 
-                StaticPopup_Show(
-                    "MYTHINC_ACTIONBARS_DELETE_BAR",
-                    settings.name,
-                    nil,
-                    {
-                        barID =
-                            selectedBarID,
-                    }
+                ShowDeleteBarConfirmation(
+                    selectedBarID,
+                    settings.name
                 )
+            end
+        )
+
+    resetAllButton =
+        widgets.CreateButton(
+            panel,
+            "Reset All",
+            110,
+            30,
+            WINDOW_WIDTH - 132,
+            -(WINDOW_HEIGHT - 46),
+            function()
+                if InCombatLockdown() then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r The active profile cannot be reset during combat."
+                    )
+
+                    return
+                end
+
+                ShowResetAllConfirmation()
             end
         )
 end
@@ -1855,10 +2471,10 @@ local function CreateConfigPanel()
             "BackdropTemplate"
         )
 
-        table.insert(
-    UISpecialFrames,
-    "MythIncActionBarsConfig"
-)
+    table.insert(
+        UISpecialFrames,
+        "MythIncActionBarsConfig"
+    )
 
     panel:SetSize(
         WINDOW_WIDTH,
@@ -1928,6 +2544,17 @@ local function CreateConfigPanel()
     panel:SetScript(
         "OnShow",
         function()
+            if suppressNextSessionStart then
+                suppressNextSessionStart =
+                    false
+
+            elseif ns.BeginConfigSession then
+                ns.BeginConfigSession()
+            end
+
+            allowConfigClose =
+                false
+
             if not ns.db.bars[
                 selectedBarID
             ] then
@@ -1941,9 +2568,11 @@ local function CreateConfigPanel()
 
             EnsureSelectedBarVisible()
             RefreshBarSelector()
+
             SetTopLevelMode(
                 selectedTopLevel
             )
+
             FitConfigToScreen()
         end
     )
@@ -1951,7 +2580,34 @@ local function CreateConfigPanel()
     panel:SetScript(
         "OnHide",
         function()
-            ns.LockAllBars()
+            if ns.LockAllBars then
+                ns.LockAllBars()
+            end
+
+            if allowConfigClose then
+                allowConfigClose =
+                    false
+
+                return
+            end
+
+            if ns.HasConfigChanges
+                and ns.HasConfigChanges()
+            then
+                suppressNextSessionStart =
+                    true
+
+                C_Timer.After(
+                    0,
+                    function()
+                        if not panel:IsShown() then
+                            panel:Show()
+                        end
+
+                        ShowUnappliedChangesDialog()
+                    end
+                )
+            end
         end
     )
 
@@ -1967,7 +2623,7 @@ function ns.ToggleConfig()
         CreateConfigPanel()
 
     if config:IsShown() then
-        config:Hide()
+        RequestCloseConfig()
     else
         config:Show()
     end
