@@ -4,6 +4,10 @@
 ## Author: MythIncGuild
 ## Version: 0.1.0-alpha.1
 ## SavedVariables: MythIncActionBarsDB
+## IconTexture: Interface\AddOns\MythIncActionBars\Media\Artwork\MIUF_Icon_128.png
+## AddonCompartmentFunc: MythIncActionBars_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: MythIncActionBars_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: MythIncActionBars_OnAddonCompartmentLeave
 
 Core.lua
 Defaults.lua
@@ -12,6 +16,7 @@ CustomActionButton.lua
 Appearance.lua
 Bar.lua
 Keybinds.lua
+Minimap.lua
 BlizzardBars.lua
 Media.lua
 ConfigWidgets.lua
