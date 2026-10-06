@@ -104,11 +104,18 @@ function ns.CreateActionButton(parent, name, actionSlot)
         ApplyColor()
     end
 
+    local function UpdateCheckedState()
+        if not C_ActionBar.HasAction(actionSlot) then
+            button:SetChecked(false)
+        end
+    end
+
     local function UpdateAll()
         UpdateIcon()
         UpdateCooldown()
         UpdateCount()
         UpdateUsability()
+        UpdateCheckedState()
     end
 
     button:SetScript("OnEnter", function(self)
@@ -135,6 +142,12 @@ function ns.CreateActionButton(parent, name, actionSlot)
         end
 
         C_ActionBar.PutActionInSlot(actionSlot)
+    end)
+
+    button:HookScript("OnClick", function()
+        if not C_ActionBar.HasAction(actionSlot) then
+            button:SetChecked(false)
+        end
     end)
 
     local eventFrame = CreateFrame("Frame")

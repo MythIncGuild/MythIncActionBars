@@ -6,5 +6,9 @@
 ## SavedVariables: MythIncActionBarsDB
 
 Core.lua
+Defaults.lua
 ActionButton.lua
 Bar.lua
+ConfigWidgets.lua
+Mover.lua
+Config.lua
