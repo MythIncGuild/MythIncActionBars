@@ -3,67 +3,592 @@ local addonName, ns = ...
 ns.ConfigWidgets = {}
 
 local widgets = ns.ConfigWidgets
+local media = ns.Media
+local colors = media.colors
+local texture = media.texture
+local font = media.font
 
-function widgets.CreateSectionTitle(parent, text, x, y)
-    local title = parent:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-    title:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    title:SetText(text)
+local function SetBackdrop(frame, color)
+    frame:SetBackdrop({
+        bgFile = texture,
+        edgeFile = texture,
+        edgeSize = 1,
+    })
 
-    return title
+    frame:SetBackdropColor(
+        unpack(color or colors.surface)
+    )
+
+    frame:SetBackdropBorderColor(
+        unpack(colors.border)
+    )
 end
 
-function widgets.CreateDescription(parent, text, x, y, width)
-    local label = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    label:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    label:SetWidth(width)
-    label:SetJustifyH("LEFT")
+local function SetFont(fontString, size, color)
+    fontString:SetFont(
+        font,
+        size,
+        "OUTLINE"
+    )
+
+    fontString:SetTextColor(
+        unpack(color or colors.text)
+    )
+end
+
+widgets.SetBackdrop = SetBackdrop
+widgets.SetFont = SetFont
+
+function widgets.CreatePanel(
+    parent,
+    width,
+    height
+)
+    local panel = CreateFrame(
+        "Frame",
+        nil,
+        parent,
+        "BackdropTemplate"
+    )
+
+    panel:SetSize(
+        width,
+        height
+    )
+
+    SetBackdrop(
+        panel,
+        colors.surface
+    )
+
+    return panel
+end
+
+function widgets.CreateSection(
+    parent,
+    titleText,
+    width,
+    height,
+    x,
+    y
+)
+    local section =
+        widgets.CreatePanel(
+            parent,
+            width,
+            height
+        )
+
+    section:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
+    )
+
+    local title =
+        section:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        title,
+        12
+    )
+
+    title:SetPoint(
+        "TOPLEFT",
+        section,
+        "TOPLEFT",
+        12,
+        -10
+    )
+
+    title:SetText(
+        titleText
+    )
+
+    section.Title = title
+
+    return section
+end
+
+function widgets.CreateText(
+    parent,
+    text,
+    size,
+    x,
+    y,
+    muted
+)
+    local label =
+        parent:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        label,
+        size or 11,
+        muted
+            and colors.muted
+            or colors.text
+    )
+
+    label:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
+    )
+
     label:SetText(text)
 
     return label
 end
 
-function widgets.CreateDivider(parent, x, y, width)
-    local line = parent:CreateTexture(nil, "ARTWORK")
-    line:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    line:SetSize(width, 1)
-    line:SetColorTexture(0.35, 0.35, 0.35, 0.7)
+function widgets.CreateButton(
+    parent,
+    text,
+    width,
+    height,
+    x,
+    y,
+    onClick
+)
+    local button = CreateFrame(
+        "Button",
+        nil,
+        parent,
+        "BackdropTemplate"
+    )
 
-    return line
-end
+    button:SetSize(
+        width,
+        height
+    )
 
-function widgets.CreateButton(parent, text, width, height, x, y, onClick)
-    local button = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
+    button:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
+    )
 
-    button:SetSize(width, height)
-    button:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
-    button:SetText(text)
-    button:SetScript("OnClick", onClick)
+    SetBackdrop(
+        button,
+        colors.surface
+    )
+
+    local label =
+        button:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        label,
+        11
+    )
+
+    label:SetPoint(
+        "CENTER"
+    )
+
+    label:SetText(text)
+
+    button.label = label
+    button.selected = false
+    button.hovered = false
+
+    local function Paint()
+        local enabled =
+            button:IsEnabled()
+
+        if not enabled then
+            button:SetBackdropColor(
+                unpack(colors.background)
+            )
+
+            button:SetBackdropBorderColor(
+                unpack(colors.border)
+            )
+
+            label:SetTextColor(
+                unpack(colors.disabled)
+            )
+
+            return
+        end
+
+        label:SetTextColor(
+            unpack(colors.text)
+        )
+
+        if button.selected then
+            button:SetBackdropColor(
+                unpack(colors.selected)
+            )
+
+            button:SetBackdropBorderColor(
+                unpack(colors.accent)
+            )
+
+            return
+        end
+
+        if button.hovered then
+            button:SetBackdropColor(
+                unpack(colors.hover)
+            )
+
+            button:SetBackdropBorderColor(
+                unpack(colors.hoverBorder)
+            )
+
+            return
+        end
+
+        button:SetBackdropColor(
+            unpack(colors.surface)
+        )
+
+        button:SetBackdropBorderColor(
+            unpack(colors.border)
+        )
+    end
+
+    function button:SetText(value)
+        label:SetText(value)
+    end
+
+    function button:GetText()
+        return label:GetText()
+    end
+
+    function button:SetSelected(value)
+        button.selected =
+            value and true or false
+
+        Paint()
+    end
+
+    button:SetScript(
+        "OnEnter",
+        function()
+            button.hovered = true
+            Paint()
+        end
+    )
+
+    button:SetScript(
+        "OnLeave",
+        function()
+            button.hovered = false
+            Paint()
+        end
+    )
+
+    button:HookScript(
+        "OnEnable",
+        Paint
+    )
+
+    button:HookScript(
+        "OnDisable",
+        Paint
+    )
+
+    if onClick then
+        button:SetScript(
+            "OnClick",
+            onClick
+        )
+    end
+
+    Paint()
 
     return button
 end
 
-function widgets.CreateCheckButton(parent, text, x, y, getter, setter)
-    local checkbox = CreateFrame(
-        "CheckButton",
-        nil,
+function widgets.CreateTabButton(
+    parent,
+    text,
+    width,
+    height,
+    x,
+    y,
+    onClick
+)
+    return widgets.CreateButton(
         parent,
-        "UICheckButtonTemplate"
+        text,
+        width,
+        height,
+        x,
+        y,
+        onClick
+    )
+end
+
+function widgets.CreateCheckButton(
+    parent,
+    text,
+    x,
+    y,
+    getter,
+    setter
+)
+    local checkbox =
+        CreateFrame(
+            "CheckButton",
+            nil,
+            parent,
+            "UICheckButtonTemplate"
+        )
+
+    checkbox:SetSize(
+        24,
+        24
     )
 
-    checkbox:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    checkbox:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
+    )
 
-    checkbox.Text:SetText(text)
-    checkbox:SetChecked(getter())
+    local checked =
+        checkbox:GetCheckedTexture()
 
-    checkbox:SetScript("OnClick", function(self)
-        setter(self:GetChecked())
-    end)
-
-    checkbox.Refresh = function(self)
-        self:SetChecked(getter())
+    if checked then
+        checked:SetVertexColor(
+            unpack(colors.accent)
+        )
     end
 
+    local highlight =
+        checkbox:GetHighlightTexture()
+
+    if highlight then
+        highlight:SetVertexColor(
+            unpack(colors.accent)
+        )
+    end
+
+    local label =
+        checkbox:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        label,
+        11
+    )
+
+    label:SetPoint(
+        "LEFT",
+        checkbox,
+        "RIGHT",
+        4,
+        0
+    )
+
+    label:SetText(text)
+
+    checkbox.label = label
+
+    checkbox:SetScript(
+        "OnClick",
+        function(self)
+            setter(
+                self:GetChecked()
+                    and true
+                    or false
+            )
+        end
+    )
+
+    checkbox.Refresh =
+    function()
+        checkbox:SetChecked(
+            getter()
+        )
+    end
+
+checkbox.Refresh()
+
     return checkbox
+end
+
+function widgets.CreateEditBox(
+    parent,
+    labelText,
+    width,
+    x,
+    y,
+    getter,
+    setter
+)
+    local container =
+        CreateFrame(
+            "Frame",
+            nil,
+            parent
+        )
+
+    container:SetSize(
+        width,
+        48
+    )
+
+    container:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
+    )
+
+    local label =
+        container:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
+
+    SetFont(
+        label,
+        11
+    )
+
+    label:SetPoint(
+        "TOPLEFT",
+        container,
+        "TOPLEFT",
+        0,
+        0
+    )
+
+    label:SetText(
+        labelText
+    )
+
+    local editBox =
+        CreateFrame(
+            "EditBox",
+            nil,
+            container,
+            "InputBoxTemplate"
+        )
+
+    editBox:SetSize(
+        width,
+        22
+    )
+
+    editBox:SetPoint(
+        "TOPLEFT",
+        container,
+        "TOPLEFT",
+        4,
+        -20
+    )
+
+    editBox:SetAutoFocus(false)
+    editBox:SetMaxLetters(40)
+
+    editBox:SetTextColor(
+        unpack(colors.text)
+    )
+
+    local refreshing = false
+
+    local function Commit()
+        if refreshing then
+            return
+        end
+
+        local value =
+            editBox:GetText()
+
+        value =
+            value:gsub(
+                "^%s+",
+                ""
+            )
+
+        value =
+            value:gsub(
+                "%s+$",
+                ""
+            )
+
+        if value == "" then
+            value = getter()
+        end
+
+        setter(value)
+
+        editBox:SetText(
+            value
+        )
+    end
+
+    editBox:SetScript(
+        "OnEnterPressed",
+        function(self)
+            Commit()
+            self:ClearFocus()
+        end
+    )
+
+    editBox:SetScript(
+        "OnEscapePressed",
+        function(self)
+            self:SetText(
+                getter()
+            )
+
+            self:ClearFocus()
+        end
+    )
+
+    editBox:SetScript(
+        "OnEditFocusGained",
+        function(self)
+            self:HighlightText()
+        end
+    )
+
+    editBox:SetScript(
+        "OnEditFocusLost",
+        Commit
+    )
+
+    container.Refresh =
+        function()
+            refreshing = true
+
+            editBox:SetText(
+                getter() or ""
+            )
+
+            refreshing = false
+        end
+
+    container.editBox =
+        editBox
+
+    container.Refresh()
+
+    return container
 end
 
 function widgets.CreateSlider(
@@ -76,87 +601,352 @@ function widgets.CreateSlider(
     y,
     getter,
     setter,
-    formatter
+    formatter,
+    width
 )
-    local container = CreateFrame("Frame", nil, parent)
+    width =
+        width or 250
 
-    container:SetSize(300, 52)
-    container:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    local container =
+        CreateFrame(
+            "Frame",
+            nil,
+            parent
+        )
 
-    local label = container:CreateFontString(
-        nil,
-        "OVERLAY",
-        "GameFontNormal"
+    container:SetSize(
+        width,
+        70
     )
 
-    label:SetPoint("TOPLEFT", container, "TOPLEFT", 0, 0)
-    label:SetText(labelText)
-
-    local valueText = container:CreateFontString(
-        nil,
-        "OVERLAY",
-        "GameFontHighlight"
+    container:SetPoint(
+        "TOPLEFT",
+        parent,
+        "TOPLEFT",
+        x,
+        y
     )
 
-    valueText:SetPoint("TOPRIGHT", container, "TOPRIGHT", 0, 0)
+    local label =
+        container:CreateFontString(
+            nil,
+            "OVERLAY"
+        )
 
-    local slider = CreateFrame(
-        "Slider",
-        nil,
+    SetFont(
+        label,
+        11
+    )
+
+    label:SetPoint(
+        "TOP",
         container,
-        "OptionsSliderTemplate"
+        "TOP",
+        0,
+        0
     )
 
-    slider:SetPoint("TOPLEFT", container, "TOPLEFT", 0, -22)
-    slider:SetWidth(300)
-    slider:SetMinMaxValues(minValue, maxValue)
-    slider:SetValueStep(step)
-    slider:SetObeyStepOnDrag(true)
+    label:SetText(
+        labelText
+    )
 
-    slider.Low:SetText("")
-    slider.High:SetText("")
+    local sliderName =
+        "MythIncActionBarsSlider"
+        .. tostring(
+            math.random(
+                100000,
+                999999
+            )
+        )
+
+    local slider =
+        CreateFrame(
+            "Slider",
+            sliderName,
+            container,
+            "OptionsSliderTemplate"
+        )
+
+    slider:SetPoint(
+        "TOP",
+        container,
+        "TOP",
+        0,
+        -22
+    )
+
+    slider:SetWidth(width)
+
+    slider:SetMinMaxValues(
+        minValue,
+        maxValue
+    )
+
+    slider:SetValueStep(
+        step
+    )
+
+    slider:SetObeyStepOnDrag(
+        true
+    )
+
     slider.Text:SetText("")
 
-    local function FormatValue(value)
-        if formatter then
-            return formatter(value)
-        end
+    slider.Low:SetText(
+        tostring(minValue)
+    )
 
-        if step < 1 then
-            return string.format("%.2f", value)
-        end
+    slider.High:SetText(
+        tostring(maxValue)
+    )
 
-        return tostring(math.floor(value + 0.5))
+    SetFont(
+        slider.Low,
+        9,
+        colors.muted
+    )
+
+    SetFont(
+        slider.High,
+        9,
+        colors.muted
+    )
+
+    local thumb =
+        slider:GetThumbTexture()
+
+    if thumb then
+        thumb:SetVertexColor(
+            unpack(colors.accent)
+        )
     end
+
+    local valueBox =
+        CreateFrame(
+            "EditBox",
+            nil,
+            container,
+            "InputBoxTemplate"
+        )
+
+    valueBox:SetSize(
+        58,
+        20
+    )
+
+    valueBox:SetPoint(
+        "TOP",
+        slider,
+        "BOTTOM",
+        0,
+        -1
+    )
+
+    valueBox:SetAutoFocus(false)
+    valueBox:SetJustifyH("CENTER")
+    valueBox:SetMaxLetters(10)
+
+    valueBox:SetTextColor(
+        unpack(colors.text)
+    )
 
     local refreshing = false
 
-    slider:SetScript("OnValueChanged", function(self, value)
-        if refreshing then
-            return
+    local function Clamp(value)
+        value =
+            math.max(
+                minValue,
+                math.min(
+                    maxValue,
+                    value
+                )
+            )
+
+        local steps =
+            math.floor(
+                ((value - minValue) / step)
+                    + 0.5
+            )
+
+        value =
+            minValue
+            + (steps * step)
+
+        return math.max(
+            minValue,
+            math.min(
+                maxValue,
+                value
+            )
+        )
+    end
+
+    local function Format(value)
+        if formatter then
+            return formatter(
+                value
+            )
         end
 
-        local rounded = math.floor((value / step) + 0.5) * step
+        if step < 1 then
+            return string.format(
+                "%.2f",
+                value
+            )
+        end
 
-        setter(rounded)
-        valueText:SetText(FormatValue(rounded))
-    end)
+        return tostring(
+            math.floor(
+                value + 0.5
+            )
+        )
+    end
 
-    container.Refresh = function()
+    local function Restore()
         refreshing = true
 
-        local value = getter()
+        local value =
+            getter()
 
-        slider:SetValue(value)
-        valueText:SetText(FormatValue(value))
+        slider:SetValue(
+            value
+        )
+
+        valueBox:SetText(
+            Format(value)
+        )
 
         refreshing = false
     end
 
-    container.Refresh()
+    local function Commit()
+        if refreshing then
+            return
+        end
 
-    container.slider = slider
-    container.valueText = valueText
+        local value =
+            tonumber(
+                valueBox:GetText()
+            )
+
+        if not value then
+            Restore()
+            valueBox:ClearFocus()
+            return
+        end
+
+        value =
+            Clamp(value)
+
+        refreshing = true
+
+        slider:SetValue(
+            value
+        )
+
+        valueBox:SetText(
+            Format(value)
+        )
+
+        refreshing = false
+
+        setter(value)
+
+        valueBox:ClearFocus()
+    end
+
+    slider:SetScript(
+        "OnValueChanged",
+        function(self, value)
+            if refreshing then
+                return
+            end
+
+            value =
+                Clamp(value)
+
+            setter(value)
+
+            if not valueBox:HasFocus() then
+                valueBox:SetText(
+                    Format(value)
+                )
+            end
+        end
+    )
+
+    valueBox:SetScript(
+        "OnEnterPressed",
+        Commit
+    )
+
+    valueBox:SetScript(
+        "OnEscapePressed",
+        function(self)
+            Restore()
+            self:ClearFocus()
+        end
+    )
+
+    valueBox:SetScript(
+        "OnEditFocusGained",
+        function(self)
+            self:HighlightText()
+        end
+    )
+
+    valueBox:SetScript(
+        "OnEditFocusLost",
+        Commit
+    )
+
+    container.Refresh =
+        Restore
+
+    container.SetMinMaxValues =
+        function(self, newMin, newMax)
+            minValue =
+                newMin
+
+            maxValue =
+                newMax
+
+            slider:SetMinMaxValues(
+                minValue,
+                maxValue
+            )
+
+            slider.Low:SetText(
+                tostring(minValue)
+            )
+
+            slider.High:SetText(
+                tostring(maxValue)
+            )
+
+            local value =
+                getter()
+
+            if value < minValue then
+                setter(
+                    minValue
+                )
+            elseif value > maxValue then
+                setter(
+                    maxValue
+                )
+            end
+
+            self:Refresh()
+        end
+
+    container.slider =
+        slider
+
+    container.valueBox =
+        valueBox
+
+    container.Refresh()
 
     return container
 end
