@@ -1,0 +1,8 @@
+## Interface: 120100
+## Title: MythInc Action Bars
+## Notes: A modern, customizable World of Warcraft action bar replacement by Myth Inc.
+## Author: MythIncGuild
+## Version: 0.1.0-alpha.1
+## SavedVariables: MythIncActionBarsDB
+
+Core.lua
