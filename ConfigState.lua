@@ -109,6 +109,56 @@ local function ReplaceTable(
     end
 end
 
+local function RestoreSnapshot()
+    if not snapshot then
+        return false
+    end
+
+    local profileName =
+        snapshotProfileName
+
+    if not profileName
+        and ns.GetCurrentProfileName
+    then
+        profileName =
+            ns.GetCurrentProfileName()
+    end
+
+    if ns.rootDB
+        and ns.rootDB.profiles
+        and profileName
+    then
+        local restoredProfile =
+            DeepCopy(
+                snapshot
+            )
+
+        ns.rootDB.profiles[
+            profileName
+        ] =
+            restoredProfile
+
+        ns.db =
+            restoredProfile
+
+        ns.profileName =
+            profileName
+
+        return true
+    end
+
+    if ns.db then
+        ReplaceTable(
+            ns.db,
+            snapshot
+        )
+
+        return true
+    end
+
+    return false
+end
+
 function ns.BeginConfigSession()
     if not ns.db then
         return
@@ -191,10 +241,10 @@ function ns.RevertConfigChanges()
             "missing"
     end
 
-    ReplaceTable(
-        ns.db,
-        snapshot
-    )
+    if not RestoreSnapshot() then
+        return false,
+            "missing"
+    end
 
     local success,
         reason =

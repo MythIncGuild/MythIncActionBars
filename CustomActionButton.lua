@@ -4,8 +4,20 @@ local function GetAssignment(
     barID,
     buttonID
 )
+    if not ns.db
+        or not ns.db.bars
+    then
+        return nil
+    end
+
     local settings =
-        ns.db.bars[barID]
+        ns.db.bars[
+            barID
+        ]
+
+    if not settings then
+        return nil
+    end
 
     settings.assignments =
         settings.assignments
@@ -21,8 +33,20 @@ local function SetAssignment(
     buttonID,
     assignment
 )
+    if not ns.db
+        or not ns.db.bars
+    then
+        return false
+    end
+
     local settings =
-        ns.db.bars[barID]
+        ns.db.bars[
+            barID
+        ]
+
+    if not settings then
+        return false
+    end
 
     settings.assignments =
         settings.assignments
@@ -32,6 +56,8 @@ local function SetAssignment(
         buttonID
     ] =
         assignment
+
+    return true
 end
 
 local function GetAppearance(
@@ -209,17 +235,9 @@ function ns.CreateCustomActionButton(
         36
     )
 
-    if GetCVarBool(
-        "ActionButtonUseKeyDown"
-    ) then
-        button:RegisterForClicks(
-            "AnyDown"
-        )
-    else
-        button:RegisterForClicks(
-            "AnyUp"
-        )
-    end
+    button:RegisterForClicks(
+    "AnyUp"
+)
 
     button:RegisterForDrag(
         "LeftButton"
@@ -336,9 +354,70 @@ function ns.CreateCustomActionButton(
     )
 
     button.Border =
-        border
+    border
 
-    local usableState = true
+local dragHighlight =
+    button:CreateTexture(
+        nil,
+        "OVERLAY",
+        nil,
+        6
+    )
+
+dragHighlight:SetPoint(
+    "TOPLEFT",
+    button,
+    "TOPLEFT",
+    2,
+    -2
+)
+
+dragHighlight:SetPoint(
+    "BOTTOMRIGHT",
+    button,
+    "BOTTOMRIGHT",
+    -2,
+    2
+)
+
+dragHighlight:SetColorTexture(
+    0.15,
+    0.8,
+    0.78,
+    0.32
+)
+
+dragHighlight:Hide()
+
+button.DragHighlight =
+    dragHighlight
+
+local function UpdateDragHighlight()
+    if InCombatLockdown() then
+        ns.SetDragHighlight(
+            button,
+            false
+        )
+
+        return
+    end
+
+    local cursorType =
+        GetCursorInfo()
+
+    local validCursor =
+        cursorType == "spell"
+        or cursorType == "item"
+        or cursorType == "macro"
+        or cursorType == "action"
+
+    ns.SetDragHighlight(
+        button,
+        validCursor
+    )
+end
+
+local usableState = true
     local resourceState = false
     local outOfRangeState = false
 
@@ -711,60 +790,124 @@ function ns.CreateCustomActionButton(
     end
 
     local function AssignFromCursor()
-        if InCombatLockdown() then
-            return
-        end
+    if InCombatLockdown() then
+        return false
+    end
 
-        local cursorType,
-            info1,
-            info2,
-            info3 =
-            GetCursorInfo()
+    local cursorType,
+        info1,
+        info2,
+        info3 =
+        GetCursorInfo()
 
-        if cursorType
+    local assignment
+
+    if cursorType
+        == "spell"
+    then
+        assignment = {
+            type =
+                "spell",
+
+            id =
+                info3,
+        }
+
+    elseif cursorType
+        == "item"
+    then
+        assignment = {
+            type =
+                "item",
+
+            id =
+                info1,
+        }
+
+    elseif cursorType
+        == "macro"
+    then
+        assignment = {
+            type =
+                "macro",
+
+            id =
+                info1,
+        }
+
+    elseif cursorType
+        == "action"
+    then
+        local actionType,
+            actionID =
+            GetActionInfo(
+                info1
+            )
+
+        if actionType
             == "spell"
         then
-            SetAssignment(
-                barID,
-                buttonID,
-                {
-                    type = "spell",
-                    id = info3,
-                }
-            )
+            assignment = {
+                type =
+                    "spell",
 
-        elseif cursorType
+                id =
+                    actionID,
+            }
+
+        elseif actionType
             == "item"
         then
-            SetAssignment(
-                barID,
-                buttonID,
-                {
-                    type = "item",
-                    id = info1,
-                }
-            )
+            assignment = {
+                type =
+                    "item",
 
-        elseif cursorType
+                id =
+                    actionID,
+            }
+
+        elseif actionType
             == "macro"
         then
-            SetAssignment(
-                barID,
-                buttonID,
-                {
-                    type = "macro",
-                    id = info1,
-                }
-            )
+            assignment = {
+                type =
+                    "macro",
 
+                id =
+                    actionID,
+            }
         else
-            return
+            return false
         end
-
-        ClearCursor()
-
-        UpdateAssignment()
+    else
+        return false
     end
+
+    if not assignment
+        or not assignment.id
+    then
+        return false
+    end
+
+    local success =
+        SetAssignment(
+            barID,
+            buttonID,
+            assignment
+        )
+
+    if not success then
+        return false
+    end
+
+    ClearCursor()
+
+    ns.ClearDragHighlight()
+
+    UpdateAssignment()
+
+    return true
+end
 
     button:SetScript(
         "OnReceiveDrag",
@@ -772,6 +915,54 @@ function ns.CreateCustomActionButton(
             AssignFromCursor()
         end
     )
+
+    local suppressedAssignment =
+    false
+
+button:HookScript(
+    "PreClick",
+    function(self)
+        suppressedAssignment =
+            false
+
+        if InCombatLockdown() then
+            return
+        end
+
+        local cursorType =
+            GetCursorInfo()
+
+        if not cursorType then
+            return
+        end
+
+        suppressedAssignment =
+            true
+
+        self:SetAttribute(
+            "type",
+            nil
+        )
+
+        AssignFromCursor()
+
+        ns.ClearDragHighlight()
+    end
+)
+
+button:HookScript(
+    "PostClick",
+    function()
+        if not suppressedAssignment then
+            return
+        end
+
+        suppressedAssignment =
+            false
+
+        UpdateAssignment()
+    end
+)
 
     button:SetScript(
         "OnDragStart",
@@ -822,63 +1013,70 @@ function ns.CreateCustomActionButton(
         end
     )
 
-    button:SetScript(
-        "OnEnter",
-        function(self)
-            local assignment =
-                GetAssignment(
-                    barID,
-                    buttonID
-                )
+button:SetScript(
+    "OnEnter",
+    function(self)
+        UpdateDragHighlight()
 
-            if not assignment then
-                return
-            end
-
-            GameTooltip:SetOwner(
-                self,
-                "ANCHOR_RIGHT"
+        local assignment =
+            GetAssignment(
+                barID,
+                buttonID
             )
 
-            if assignment.type
-                == "spell"
-            then
-                GameTooltip:SetSpellByID(
+        if not assignment then
+            return
+        end
+
+        GameTooltip:SetOwner(
+            self,
+            "ANCHOR_RIGHT"
+        )
+
+        if assignment.type
+            == "spell"
+        then
+            GameTooltip:SetSpellByID(
+                assignment.id
+            )
+
+        elseif assignment.type
+            == "item"
+        then
+            GameTooltip:SetItemByID(
+                assignment.id
+            )
+
+        elseif assignment.type
+            == "macro"
+        then
+            local macroName =
+                GetMacroInfo(
                     assignment.id
                 )
 
-            elseif assignment.type
-                == "item"
-            then
-                GameTooltip:SetItemByID(
-                    assignment.id
+            if macroName then
+                GameTooltip:SetText(
+                    macroName
                 )
-
-            elseif assignment.type
-                == "macro"
-            then
-                local macroName =
-                    GetMacroInfo(
-                        assignment.id
-                    )
-
-                if macroName then
-                    GameTooltip:SetText(
-                        macroName
-                    )
-                end
             end
-
-            GameTooltip:Show()
         end
-    )
 
-    button:SetScript(
-        "OnLeave",
-        function()
-            GameTooltip:Hide()
-        end
-    )
+        GameTooltip:Show()
+    end
+)
+
+button:SetScript(
+    "OnLeave",
+    function()
+        ns.SetDragHighlight(
+            button,
+            false
+        )
+
+        GameTooltip:Hide()
+    end
+)
 
     local eventFrame =
         CreateFrame(
@@ -934,41 +1132,68 @@ function ns.CreateCustomActionButton(
     )
 
     local elapsedSinceStateUpdate =
-        0
+    0
 
-    button:SetScript(
-        "OnUpdate",
-        function(
-            _,
-            elapsed
-        )
-            if not button:IsShown() then
-                return
-            end
+button:SetScript(
+    "OnUpdate",
+    function(
+        _,
+        elapsed
+    )
+        if not button:IsShown() then
+            ns.SetDragHighlight(
+    button,
+    false
+)
+            return
+        end
 
-            if not GetAssignment(
+        if button:IsMouseOver() then
+            UpdateDragHighlight()
+        elseif dragHighlight:IsShown() then
+            ns.SetDragHighlight(
+    button,
+    false
+)
+        end
+
+        local assignment =
+            GetAssignment(
                 barID,
                 buttonID
-            ) then
-                return
-            end
+            )
 
-            elapsedSinceStateUpdate =
-                elapsedSinceStateUpdate
-                + elapsed
-
-            if elapsedSinceStateUpdate
-                < 0.2
-            then
-                return
-            end
-
+        if not assignment then
             elapsedSinceStateUpdate =
                 0
 
-            UpdateVisualState()
+            if icon:IsShown()
+                or count:GetText() ~= ""
+            then
+                UpdateAssignment()
+            end
+
+            return
         end
-    )
+
+        elapsedSinceStateUpdate =
+            elapsedSinceStateUpdate
+            + elapsed
+
+        if elapsedSinceStateUpdate
+            < 0.2
+        then
+            return
+        end
+
+        elapsedSinceStateUpdate =
+            0
+
+        UpdateCooldown()
+        UpdateCount()
+        UpdateVisualState()
+    end
+)
 
     button.UpdateAssignment =
         UpdateAssignment
@@ -985,4 +1210,5 @@ function ns.CreateCustomActionButton(
     UpdateAssignment()
 
     return button
+
 end

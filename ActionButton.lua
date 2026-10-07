@@ -3,6 +3,94 @@ local addonName, ns = ...
 local BUTTON_SIZE = 36
 local BUTTONS_PER_PAGE = 12
 
+ns.DragHighlightState =
+    ns.DragHighlightState
+    or {
+        activeButton = nil,
+    }
+
+function ns.SetDragHighlight(
+    button,
+    shown
+)
+    local state =
+        ns.DragHighlightState
+
+    if shown then
+        local previous =
+            state.activeButton
+
+        if previous
+            and previous ~= button
+            and previous.DragHighlight
+        then
+            previous.DragHighlight:Hide()
+        end
+
+        if button
+            and button.DragHighlight
+        then
+            button.DragHighlight:Show()
+
+            state.activeButton =
+                button
+        end
+
+        return
+    end
+
+    if button
+        and button.DragHighlight
+    then
+        button.DragHighlight:Hide()
+    end
+
+    if state.activeButton
+        == button
+    then
+        state.activeButton =
+            nil
+    end
+end
+
+function ns.ClearDragHighlight()
+    local state =
+        ns.DragHighlightState
+
+    local button =
+        state.activeButton
+
+    if button
+        and button.DragHighlight
+    then
+        button.DragHighlight:Hide()
+    end
+
+    state.activeButton =
+        nil
+end
+
+local dragCursorFrame =
+    CreateFrame(
+        "Frame"
+    )
+
+dragCursorFrame:RegisterEvent(
+    "CURSOR_CHANGED"
+)
+
+dragCursorFrame:SetScript(
+    "OnEvent",
+    function()
+        local cursorType =
+            GetCursorInfo()
+
+        if not cursorType then
+            ns.ClearDragHighlight()
+        end
+    end
+)
+
 function ns.CreateActionButton(
     parent,
     name,
@@ -31,17 +119,9 @@ function ns.CreateActionButton(
         actionSlot
     )
 
-    if GetCVarBool(
-        "ActionButtonUseKeyDown"
-    ) then
-        button:RegisterForClicks(
-            "AnyDown"
-        )
-    else
-        button:RegisterForClicks(
-            "AnyUp"
-        )
-    end
+   button:RegisterForClicks(
+    "AnyUp"
+)
 
     button:RegisterForDrag(
         "LeftButton"
@@ -182,9 +262,70 @@ function ns.CreateActionButton(
     )
 
     button.Border =
-        border
+    border
 
-    local buttonID =
+local dragHighlight =
+    button:CreateTexture(
+        nil,
+        "OVERLAY",
+        nil,
+        6
+    )
+
+dragHighlight:SetPoint(
+    "TOPLEFT",
+    button,
+    "TOPLEFT",
+    2,
+    -2
+)
+
+dragHighlight:SetPoint(
+    "BOTTOMRIGHT",
+    button,
+    "BOTTOMRIGHT",
+    -2,
+    2
+)
+
+dragHighlight:SetColorTexture(
+    0.15,
+    0.8,
+    0.78,
+    0.32
+)
+
+dragHighlight:Hide()
+
+button.DragHighlight =
+    dragHighlight
+
+local function UpdateDragHighlight()
+    if InCombatLockdown() then
+        ns.SetDragHighlight(
+            button,
+            false
+        )
+
+        return
+    end
+
+    local cursorType =
+        GetCursorInfo()
+
+    local validCursor =
+        cursorType == "spell"
+        or cursorType == "item"
+        or cursorType == "macro"
+        or cursorType == "action"
+
+    ns.SetDragHighlight(
+        button,
+        validCursor
+    )
+end
+
+local buttonID =
         ((actionSlot - 1)
             % BUTTONS_PER_PAGE)
         + 1
@@ -289,24 +430,31 @@ function ns.CreateActionButton(
     end
 
     local function RefreshKeybindText()
-        if not ns.GetDisplayKeybindForActionSlot
-            or not ns.FormatKeybind
-        then
-            hotKey:SetText("")
-            return
-        end
-
-        local key =
-            ns.GetDisplayKeybindForActionSlot(
-                currentActionSlot
-            )
-
-        hotKey:SetText(
-            ns.FormatKeybind(
-                key
-            )
-        )
+    if not C_ActionBar.HasAction(
+        currentActionSlot
+    ) then
+        hotKey:SetText("")
+        return
     end
+
+    if not ns.GetDisplayKeybindForActionSlot
+        or not ns.FormatKeybind
+    then
+        hotKey:SetText("")
+        return
+    end
+
+    local key =
+        ns.GetDisplayKeybindForActionSlot(
+            currentActionSlot
+        )
+
+    hotKey:SetText(
+        ns.FormatKeybind(
+            key
+        )
+    )
+end
 
     local function ApplyColor()
         local appearance =
@@ -405,12 +553,19 @@ function ns.CreateActionButton(
     end
 
     local function UpdateCount()
-        count:SetText(
-            C_ActionBar.GetActionDisplayCount(
-                currentActionSlot
-            )
-        )
+    if not C_ActionBar.HasAction(
+        currentActionSlot
+    ) then
+        count:SetText("")
+        return
     end
+
+    count:SetText(
+        C_ActionBar.GetActionDisplayCount(
+            currentActionSlot
+        )
+    )
+end
 
     local function UpdateUsability()
         local usable,
@@ -639,60 +794,145 @@ function ns.CreateActionButton(
     end
 
     button:SetScript(
-        "OnEnter",
-        function(self)
-            GameTooltip:SetOwner(
-                self,
-                "ANCHOR_RIGHT"
-            )
+    "OnEnter",
+    function(self)
+        UpdateDragHighlight()
 
-            GameTooltip:SetAction(
-                currentActionSlot
-            )
+        GameTooltip:SetOwner(
+            self,
+            "ANCHOR_RIGHT"
+        )
 
-            GameTooltip:Show()
-        end
-    )
+        GameTooltip:SetAction(
+            currentActionSlot
+        )
+
+        GameTooltip:Show()
+    end
+)
+
+button:SetScript(
+    "OnLeave",
+    function()
+        ns.SetDragHighlight(
+    button,
+    false
+)
+        GameTooltip:Hide()
+    end
+)
 
     button:SetScript(
-        "OnLeave",
-        function()
-            GameTooltip:Hide()
+    "OnDragStart",
+    function()
+        if InCombatLockdown() then
+            return
         end
-    )
 
-    button:SetScript(
-        "OnDragStart",
-        function()
-            if InCombatLockdown() then
-                return
+        PickupAction(
+            currentActionSlot
+        )
+
+        UpdateDragHighlight()
+
+        C_Timer.After(
+            0,
+            function()
+                UpdateAll()
             end
+        )
+    end
+)
 
-            PickupAction(
-                currentActionSlot
-            )
+   button:SetScript(
+    "OnReceiveDrag",
+    function()
+        if InCombatLockdown() then
+            return
         end
-    )
 
-    button:SetScript(
-        "OnReceiveDrag",
-        function()
-            if InCombatLockdown() then
-                return
+        C_ActionBar.PutActionInSlot(
+            currentActionSlot
+        )
+
+        ns.SetDragHighlight(
+    button,
+    false
+)
+
+        C_Timer.After(
+            0,
+            function()
+                UpdateAll()
             end
+        )
+    end
+)
 
-            C_ActionBar.PutActionInSlot(
+    local suppressSecureAction =
+    false
+
+button:HookScript(
+    "PreClick",
+    function(self)
+        suppressSecureAction =
+            false
+
+        if InCombatLockdown() then
+            return
+        end
+
+        local cursorType =
+            GetCursorInfo()
+
+        if not cursorType then
+            return
+        end
+
+        suppressSecureAction =
+            true
+
+        self:SetAttribute(
+            "type",
+            nil
+        )
+
+        C_ActionBar.PutActionInSlot(
+            currentActionSlot
+        )
+
+        ns.ClearDragHighlight()
+
+        C_Timer.After(
+            0,
+            function()
+                UpdateAll()
+            end
+        )
+    end
+)
+
+button:HookScript(
+    "PostClick",
+    function(self)
+        if suppressSecureAction then
+            self:SetAttribute(
+                "type",
+                "action"
+            )
+
+            self:SetAttribute(
+                "action",
                 currentActionSlot
             )
-        end
-    )
 
-    button:HookScript(
-        "OnClick",
-        function()
-            UpdateCheckedState()
+            suppressSecureAction =
+                false
         end
-    )
+
+        UpdateCheckedState()
+    end
+)
 
     local eventFrame =
         CreateFrame(
@@ -864,4 +1104,4 @@ function ns.CreateActionButton(
     UpdateAll()
 
     return button
-end
+    end
