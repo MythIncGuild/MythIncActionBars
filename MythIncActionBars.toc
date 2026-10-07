@@ -31,3 +31,4 @@ ConfigKeybinds.lua
 ConfigGeneral.lua
 ConfigProfiles.lua
 Config.lua
+PetBar.lua
