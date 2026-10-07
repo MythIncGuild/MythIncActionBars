@@ -101,7 +101,7 @@ function ns.CreateActionButton(
             "CheckButton",
             name,
             parent,
-            "SecureActionButtonTemplate"
+            "SecureActionButtonTemplate,SecureHandlerStateTemplate"
         )
 
     button:SetSize(
@@ -354,6 +354,7 @@ local buttonID =
         },
     }
 
+    local automaticPaging = parent.barID == 1
     local currentActionSlot =
         actionSlot
 
@@ -406,6 +407,10 @@ local buttonID =
     end
 
     local function GetEffectiveActionSlot()
+        if automaticPaging then
+            local page = tonumber(button:GetAttribute("miab-page")) or 1
+            return GetPageSlot(page)
+        end
         return ResolveActionSlot(
             IsShiftKeyDown(),
             IsControlKeyDown(),
@@ -451,10 +456,13 @@ local buttonID =
         return
     end
 
-    local key =
-        ns.GetDisplayKeybindForActionSlot(
-            currentActionSlot
-        )
+    local key
+    if automaticPaging and ns.GetButtonKeybind then
+        key = ns.GetButtonKeybind(1, buttonID, "primary")
+            or ns.GetButtonKeybind(1, buttonID, "secondary")
+    else
+        key = ns.GetDisplayKeybindForActionSlot(currentActionSlot)
+    end
 
     hotKey:SetText(
         ns.FormatKeybind(
@@ -668,6 +676,54 @@ end
         )
     end
 
+    -- These attributes are changed only by the restricted state handler in combat.
+    -- All click modifier combinations follow the same securely selected page.
+    local automaticPageHandler = [[
+        local page = tonumber(newstate) or 1
+        local slot = (page - 1) * 12 + self:GetAttribute("miab-button-id")
+        self:SetAttribute("action", slot)
+        self:SetAttribute("shift-action*", slot)
+        self:SetAttribute("ctrl-action*", slot)
+        self:SetAttribute("alt-action*", slot)
+        self:SetAttribute("ctrl-shift-action*", slot)
+        self:SetAttribute("alt-shift-action*", slot)
+        self:SetAttribute("alt-ctrl-action*", slot)
+        self:SetAttribute("alt-ctrl-shift-action*", slot)
+        self:SetAttribute("miab-page", page)
+    ]]
+
+    local function ConfigureAutomaticPaging()
+        if not automaticPaging then return end
+
+        local conditions = {
+            -- Blizzard retains ownership of special vehicle/override controls.
+            "[vehicleui] 1", "[overridebar] 1", "[possessbar] 1",
+        }
+        for _, modifier in ipairs({ "alt", "ctrl", "shift" }) do
+            local entry = modifierPages[modifier]
+            if entry.enabled then
+                conditions[#conditions + 1] =
+                    "[mod:" .. modifier .. "] " .. entry.page
+            end
+        end
+        for page = 2, 6 do
+            conditions[#conditions + 1] = "[bar:" .. page .. "] " .. page
+        end
+        -- Bonus offsets 1-4 are class/form/stealth pages 7-10.
+        -- Offset 5 is reserved for special control and stays with Blizzard.
+        for offset = 1, 4 do
+            conditions[#conditions + 1] =
+                "[bonusbar:" .. offset .. "] " .. (offset + 6)
+        end
+        conditions[#conditions + 1] = "1"
+
+        UnregisterStateDriver(button, "page")
+        button:SetAttribute("_onstate-page", automaticPageHandler)
+        button:SetAttribute("miab-button-id", buttonID)
+        button:SetAttribute("state-page", nil)
+        RegisterStateDriver(button, "page", table.concat(conditions, "; "))
+    end
+
     local function ConfigureActionPages(
         settings
     )
@@ -795,10 +851,17 @@ end
             true
         )
 
+        ConfigureAutomaticPaging()
         RefreshEffectiveActionSlot()
 
         return true
     end
+
+    button:HookScript("OnAttributeChanged", function(_, attribute, value)
+        if automaticPaging and attribute == "miab-page" and value then
+            RefreshEffectiveActionSlot()
+        end
+    end)
 
     button:SetScript(
     "OnEnter",
