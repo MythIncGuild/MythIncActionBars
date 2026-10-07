@@ -109,23 +109,28 @@ function ns.CreateActionButton(
         BUTTON_SIZE
     )
 
-    button:SetAttribute(
-        "type",
-        "action"
-    )
+button:SetAttribute(
+    "type",
+    "action"
+)
 
-    button:SetAttribute(
-        "action",
-        actionSlot
-    )
+button:SetAttribute(
+    "action",
+    actionSlot
+)
 
-   button:RegisterForClicks(
+button:SetAttribute(
+    "useOnKeyDown",
+    false
+)
+
+button:RegisterForClicks(
     "AnyUp"
 )
 
-    button:RegisterForDrag(
-        "LeftButton"
-    )
+button:RegisterForDrag(
+    "LeftButton"
+)
 
     local background =
         button:CreateTexture(

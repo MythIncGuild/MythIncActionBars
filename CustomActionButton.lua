@@ -231,17 +231,22 @@ function ns.CreateCustomActionButton(
         )
 
     button:SetSize(
-        36,
-        36
-    )
+    36,
+    36
+)
 
-    button:RegisterForClicks(
+button:SetAttribute(
+    "useOnKeyDown",
+    false
+)
+
+button:RegisterForClicks(
     "AnyUp"
 )
 
-    button:RegisterForDrag(
-        "LeftButton"
-    )
+button:RegisterForDrag(
+    "LeftButton"
+)
 
     local background =
         button:CreateTexture(
