@@ -23,6 +23,11 @@ local function EnsureSettings()
         ns.global.minimapButtonOffset =
             DEFAULT_OFFSET
     end
+
+    if ns.global.showMinimapButton == nil then
+        ns.global.showMinimapButton =
+            true
+    end
 end
 
 local function NormalizeAngle(
@@ -319,8 +324,39 @@ local function SetPressedAppearance()
     )
 end
 
+local function ApplyVisibility()
+    if not button then
+        return
+    end
+
+    EnsureSettings()
+
+    local shown =
+        not ns.global
+        or ns.global.showMinimapButton
+            ~= false
+
+    if not shown then
+        button:SetScript(
+            "OnUpdate",
+            nil
+        )
+
+        isDragging =
+            false
+
+        HideTooltip()
+    end
+
+    button:SetShown(
+        shown
+    )
+end
+
 local function CreateMinimapButton()
     if button then
+        ApplyVisibility()
+
         return button
     end
 
@@ -538,18 +574,71 @@ local function CreateMinimapButton()
 
     PositionButton(
         ns.global
-        and ns.global.minimapButtonAngle
-        or DEFAULT_ANGLE,
+            and ns.global.minimapButtonAngle
+            or DEFAULT_ANGLE,
         ns.global
-        and ns.global.minimapButtonOffset
-        or DEFAULT_OFFSET
+            and ns.global.minimapButtonOffset
+            or DEFAULT_OFFSET
     )
+
+    ApplyVisibility()
 
     return button
 end
 
 function ns.GetMinimapButton()
     return button
+end
+
+function ns.IsMinimapButtonShown()
+    EnsureSettings()
+
+    return not ns.global
+        or ns.global.showMinimapButton
+            ~= false
+end
+
+function ns.SetMinimapButtonShown(
+    shown
+)
+    EnsureSettings()
+
+    shown =
+        shown
+        and true
+        or false
+
+    if ns.global then
+        ns.global.showMinimapButton =
+            shown
+    end
+
+    if shown
+        and not button
+    then
+        CreateMinimapButton()
+    end
+
+    ApplyVisibility()
+
+    return true
+end
+
+function ns.RefreshMinimapButton()
+    EnsureSettings()
+
+    CreateMinimapButton()
+
+    PositionButton(
+        ns.global
+            and ns.global.minimapButtonAngle
+            or DEFAULT_ANGLE,
+        ns.global
+            and ns.global.minimapButtonOffset
+            or DEFAULT_OFFSET
+    )
+
+    ApplyVisibility()
 end
 
 function ns.ResetMinimapButtonPosition()
@@ -567,6 +656,8 @@ function ns.ResetMinimapButtonPosition()
         DEFAULT_ANGLE,
         DEFAULT_OFFSET
     )
+
+    return true
 end
 
 function MythIncActionBars_OnAddonCompartmentClick(
@@ -639,6 +730,6 @@ eventFrame:RegisterEvent(
 eventFrame:SetScript(
     "OnEvent",
     function()
-        CreateMinimapButton()
+        ns.RefreshMinimapButton()
     end
 )

@@ -27,5 +27,6 @@ ConfigAppearance.lua
 ConfigVisibility.lua
 ConfigActionPages.lua
 ConfigKeybinds.lua
+ConfigGeneral.lua
 ConfigProfiles.lua
 Config.lua

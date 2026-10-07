@@ -132,13 +132,20 @@ local function MigrateDatabase()
         or {}
 
     if root.global.hideBlizzardActionBars
-        == nil
-    then
-        root.global.hideBlizzardActionBars =
-            true
-    end
+    == nil
+then
+    root.global.hideBlizzardActionBars =
+        true
+end
 
-    root.profiles =
+if root.global.showMinimapButton
+    == nil
+then
+    root.global.showMinimapButton =
+        true
+end
+
+root.profiles =
         root.profiles
         or {}
 

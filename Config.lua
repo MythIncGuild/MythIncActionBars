@@ -28,9 +28,11 @@ local selectedTopLevel = "Action Bars"
 local barButtons = {}
 local categoryButtons = {}
 
+local generalTab
 local actionBarsTab
 local profilesTab
 
+local actionBarSettingsSection
 local barSelectorSection
 local barSelectorViewport
 local barSelectorOffset = 0
@@ -50,6 +52,9 @@ local appearancePage
 local visibilityPage
 local actionPagesPage
 local keybindsPage
+
+local generalHost
+local generalPage
 
 local profilesHost
 local profilesPage
@@ -82,7 +87,7 @@ local BAR_VISIBLE_COUNT =
     BAR_COLUMNS
     * BAR_VISIBLE_ROWS
 
-local SELECTOR_TOP = -116
+local SELECTOR_TOP = -170
 local SELECTOR_TITLE_HEIGHT = 38
 local SELECTOR_BOTTOM_PADDING = 12
 
@@ -657,6 +662,18 @@ local function RefreshControls()
 end
 
 function ns.RefreshConfig()
+if selectedTopLevel
+    == "General"
+then
+    if generalPage
+        and generalPage.Refresh
+    then
+        generalPage:Refresh()
+    end
+
+    return
+end
+
     if selectedTopLevel
         == "Profiles"
     then
@@ -1005,7 +1022,8 @@ SetTopLevelMode =
     function(
         mode
     )
-        if mode ~= "Action Bars"
+        if mode ~= "General"
+            and mode ~= "Action Bars"
             and mode ~= "Profiles"
         then
             return
@@ -1013,6 +1031,12 @@ SetTopLevelMode =
 
         selectedTopLevel =
             mode
+
+        if generalTab then
+            generalTab:SetSelected(
+                mode == "General"
+            )
+        end
 
         if actionBarsTab then
             actionBarsTab:SetSelected(
@@ -1026,6 +1050,10 @@ SetTopLevelMode =
             )
         end
 
+        local showGeneral =
+            not isMinimized
+            and mode == "General"
+
         local showActionBars =
             not isMinimized
             and mode == "Action Bars"
@@ -1034,8 +1062,21 @@ SetTopLevelMode =
             not isMinimized
             and mode == "Profiles"
 
-        local showWindowActions =
+        local showProfileActions =
             not isMinimized
+            and mode ~= "General"
+
+        if generalHost then
+            generalHost:SetShown(
+                showGeneral
+            )
+        end
+
+        if actionBarSettingsSection then
+            actionBarSettingsSection:SetShown(
+                showActionBars
+            )
+        end
 
         if barSelectorSection then
             barSelectorSection:SetShown(
@@ -1087,23 +1128,30 @@ SetTopLevelMode =
 
         if applyChangesButton then
             applyChangesButton:SetShown(
-                showWindowActions
+                showProfileActions
             )
         end
 
         if revertChangesButton then
             revertChangesButton:SetShown(
-                showWindowActions
+                showProfileActions
             )
         end
 
         if resetAllButton then
             resetAllButton:SetShown(
-                showWindowActions
+                showProfileActions
             )
         end
 
-        if showActionBars then
+        if showGeneral then
+            if generalPage
+                and generalPage.Refresh
+            then
+                generalPage:Refresh()
+            end
+
+        elseif showActionBars then
             RefreshControls()
 
         elseif showProfiles
@@ -1811,39 +1859,93 @@ local function CreateHeader()
             end
         )
 
-    actionBarsTab =
-        widgets.CreateTabButton(
-            panel,
-            "Action Bars",
-            110,
-            28,
-            180,
-            -48,
-            function()
-                SetTopLevelMode(
-                    "Action Bars"
-                )
-            end
-        )
-
-    profilesTab =
-        widgets.CreateTabButton(
-            panel,
-            "Profiles",
-            110,
-            28,
-            298,
-            -48,
-            function()
-                SetTopLevelMode(
-                    "Profiles"
-                )
-            end
-        )
-
-    actionBarsTab:SetSelected(
-        true
+    generalTab =
+    widgets.CreateTabButton(
+        panel,
+        "General",
+        110,
+        28,
+        180,
+        -48,
+        function()
+            SetTopLevelMode(
+                "General"
+            )
+        end
     )
+
+actionBarsTab =
+    widgets.CreateTabButton(
+        panel,
+        "Action Bars",
+        110,
+        28,
+        298,
+        -48,
+        function()
+            SetTopLevelMode(
+                "Action Bars"
+            )
+        end
+    )
+
+profilesTab =
+    widgets.CreateTabButton(
+        panel,
+        "Profiles",
+        110,
+        28,
+        416,
+        -48,
+        function()
+            SetTopLevelMode(
+                "Profiles"
+            )
+        end
+    )
+
+actionBarsTab:SetSelected(
+    true
+)
+end
+
+local function CreateActionBarSettingsSection()
+    actionBarSettingsSection =
+        widgets.CreateSection(
+            panel,
+            "ACTION BAR SETTINGS",
+            1036,
+            62,
+            22,
+            -96
+        )
+
+    hideBlizzardCheckbox =
+        widgets.CreateCheckButton(
+            actionBarSettingsSection,
+            "Hide Blizzard Action Bars",
+            18,
+            -32,
+            function()
+                return ns.AreBlizzardActionBarsHidden()
+            end,
+            function(value)
+                local success,
+                    reason =
+                    ns.SetHideBlizzardActionBars(
+                        value
+                    )
+
+                if not success
+                    and reason
+                        == "combat"
+                then
+                    print(
+                        "|cff7fd5ffMythInc Action Bars:|r Blizzard bar visibility will update when combat ends."
+                    )
+                end
+            end
+        )
 end
 
 local function CreateBarSelector()
@@ -1924,33 +2026,6 @@ local function CreateBarSelector()
             RefreshBarSelector()
         end
     )
-
-    hideBlizzardCheckbox =
-        widgets.CreateCheckButton(
-            barSelectorSection,
-            "Hide Blizzard Action Bars",
-            812,
-            -22,
-            function()
-                return ns.AreBlizzardActionBarsHidden()
-            end,
-            function(value)
-                local success,
-                    reason =
-                    ns.SetHideBlizzardActionBars(
-                        value
-                    )
-
-                if not success
-                    and reason
-                        == "combat"
-                then
-                    print(
-                        "|cff7fd5ffMythInc Action Bars:|r Blizzard bar visibility will update when combat ends."
-                    )
-                end
-            end
-        )
 
     addButton =
         widgets.CreateButton(
@@ -2304,6 +2379,42 @@ local function CreatePageHost()
     keybindsPage:Hide()
 end
 
+local function CreateGeneralHost()
+    generalHost =
+        CreateFrame(
+            "Frame",
+            nil,
+            panel
+        )
+
+    generalHost:SetPoint(
+        "TOPLEFT",
+        panel,
+        "TOPLEFT",
+        22,
+        -96
+    )
+
+    generalHost:SetPoint(
+        "BOTTOMRIGHT",
+        panel,
+        "BOTTOMRIGHT",
+        -22,
+        58
+    )
+
+    generalPage =
+        ns.CreateGeneralConfigPage(
+            generalHost
+        )
+
+    generalPage:SetAllPoints(
+        generalHost
+    )
+
+    generalHost:Hide()
+end
+
 local function CreateProfilesHost()
     profilesHost =
         CreateFrame(
@@ -2534,12 +2645,14 @@ local function CreateConfigPanel()
     )
 
     CreateHeader()
-    CreateBarSelector()
-    CreateSelectedBarHeader()
-    CreateCategoryTabs()
-    CreatePageHost()
-    CreateProfilesHost()
-    CreateBottomActions()
+CreateActionBarSettingsSection()
+CreateBarSelector()
+CreateSelectedBarHeader()
+CreateCategoryTabs()
+CreatePageHost()
+CreateGeneralHost()
+CreateProfilesHost()
+CreateBottomActions()
 
     panel:SetScript(
         "OnShow",
