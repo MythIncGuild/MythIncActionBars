@@ -319,10 +319,12 @@ local function UpdateDragHighlight()
         GetCursorInfo()
 
     local validCursor =
-        cursorType == "spell"
-        or cursorType == "item"
-        or cursorType == "macro"
-        or cursorType == "action"
+    cursorType == "spell"
+    or cursorType == "item"
+    or cursorType == "macro"
+    or cursorType == "action"
+    or cursorType == "mount"
+    or cursorType == "battlepet"
 
     ns.SetDragHighlight(
         button,
