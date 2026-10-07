@@ -1,9 +1,7 @@
 local addonName, ns = ...
 
 local function GetAssignment(barID, buttonID)
-    if not ns.db
-        or not ns.db.bars
-    then
+    if not ns.db or not ns.db.bars then
         return nil
     end
 
@@ -19,9 +17,7 @@ local function GetAssignment(barID, buttonID)
 end
 
 local function SetAssignment(barID, buttonID, assignment)
-    if not ns.db
-        or not ns.db.bars
-    then
+    if not ns.db or not ns.db.bars then
         return false
     end
 
@@ -55,8 +51,7 @@ local function GetMountSpellID(mountID)
         return nil
     end
 
-    local _, spellID =
-        C_MountJournal.GetMountInfoByID(mountID)
+    local _, spellID = C_MountJournal.GetMountInfoByID(mountID)
 
     return spellID
 end
@@ -147,11 +142,18 @@ local function ApplySecureAssignment(button, assignment)
     end
 
     if assignment.type == "mount" then
-        local spellID = GetMountSpellID(assignment.id)
+        local mountName, spellID =
+            C_MountJournal.GetMountInfoByID(assignment.id)
 
-        if spellID then
-            button:SetAttribute("type", "spell")
-            button:SetAttribute("spell", spellID)
+        local spellInfo =
+            spellID and C_Spell.GetSpellInfo(spellID)
+
+        local castName =
+            (spellInfo and spellInfo.name) or mountName
+
+        if castName and castName ~= "" then
+            button:SetAttribute("type", "macro")
+            button:SetAttribute("macrotext", "/cast " .. castName)
         end
 
         return
@@ -254,10 +256,10 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
     button:SetSize(36, 36)
 
-    -- Preserve your existing activation-on-release setting.
+    -- Preserve activation on release.
     button:SetAttribute("useOnKeyDown", false)
 
-    -- Receive both phases for secure execution and placement guards.
+    -- Receive both phases for execution and placement guards.
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:RegisterForDrag("LeftButton")
 
@@ -318,8 +320,14 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         6
     )
 
-    dragHighlight:SetPoint("TOPLEFT", button, "TOPLEFT", 2, -2)
-    dragHighlight:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+    dragHighlight:SetPoint(
+        "TOPLEFT", button, "TOPLEFT", 2, -2
+    )
+
+    dragHighlight:SetPoint(
+        "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2
+    )
+
     dragHighlight:SetColorTexture(0.15, 0.8, 0.78, 0.32)
     dragHighlight:Hide()
     button.DragHighlight = dragHighlight
@@ -536,6 +544,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             usableState = usable
             resourceState = insufficientPower
+
             ApplyColor()
             return
         end
@@ -546,6 +555,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             usableState = usable
             resourceState = insufficientPower
+
             ApplyColor()
             return
         end
@@ -756,7 +766,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         ClearCursor()
 
         if previous and not PickupAssignment(previous) then
-            -- Keep the occupied slot if its action cannot be picked up.
+            -- Keep the occupied slot if pickup fails.
             -- Attempt to restore the incoming action to the cursor.
             PickupAssignment(assignment)
             return false
@@ -790,8 +800,8 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             cursorHandled = false
 
-            -- Keep the release guard, but restore attributes between events.
-            -- PreClick disables them again for a trailing placement click.
+            -- Restore attributes between events.
+            -- PreClick guards the trailing placement click.
             if not InCombatLockdown() then
                 ApplySecureAssignment(
                     button,
@@ -811,6 +821,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         ArmPlacementGuard()
         AssignFromCursor()
+
         button:SetAttribute("type", nil)
     end)
 
@@ -822,10 +833,11 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         end
 
         if down then
-            -- Start a fresh press; discard a stale completed-drag guard.
+            -- A new press clears a completed-drag guard.
             placementGeneration = placementGeneration + 1
             suppressRelease = false
             cursorHandled = false
+
             UpdateAssignment()
         end
 
@@ -841,7 +853,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             ArmPlacementGuard()
             AssignFromCursor()
 
-            -- Assignment refresh must never reactivate this secure click.
+            -- Placement must not activate the assigned action.
             self:SetAttribute("type", nil)
         end
     end)
@@ -857,8 +869,8 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             return
         end
 
-        -- Pets execute through the original secure /summonpet assignment.
-        -- Refresh state only; do not summon a second time in PostClick.
+        -- Secure attributes execute the action.
+        -- PostClick only refreshes its visual state.
         UpdateCooldown()
         UpdateCheckedState()
     end)
@@ -999,8 +1011,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             return
         end
 
-        elapsedSinceStateUpdate =
-            elapsedSinceStateUpdate + elapsed
+        elapsedSinceStateUpdate = elapsedSinceStateUpdate + elapsed
 
         if elapsedSinceStateUpdate < 0.2 then
             return

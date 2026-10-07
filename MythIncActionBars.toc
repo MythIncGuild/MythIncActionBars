@@ -13,6 +13,7 @@ Core.lua
 Defaults.lua
 ActionButton.lua
 CustomActionButton.lua
+CustomCastFeedback.lua
 Appearance.lua
 Bar.lua
 Keybinds.lua
