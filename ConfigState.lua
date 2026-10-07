@@ -1,6 +1,7 @@
 local addonName, ns = ...
 
 local snapshot
+local globalSnapshot
 local snapshotProfileName
 
 local function DeepCopy(
@@ -169,6 +170,8 @@ function ns.BeginConfigSession()
             ns.db
         )
 
+    globalSnapshot = DeepCopy(ns.global or {})
+
     snapshotProfileName =
         ns.GetCurrentProfileName
         and ns.GetCurrentProfileName()
@@ -192,7 +195,7 @@ function ns.HasConfigChanges()
     return not DeepEqual(
         ns.db,
         snapshot
-    )
+    ) or not DeepEqual(ns.global or {}, globalSnapshot or {})
 end
 
 function ns.ApplyConfigChanges()
@@ -204,6 +207,8 @@ function ns.ApplyConfigChanges()
         DeepCopy(
             ns.db
         )
+
+    globalSnapshot = DeepCopy(ns.global or {})
 
     snapshotProfileName =
         ns.GetCurrentProfileName
@@ -244,6 +249,14 @@ function ns.RevertConfigChanges()
     if not RestoreSnapshot() then
         return false,
             "missing"
+    end
+
+    if ns.global and globalSnapshot then
+        ReplaceTable(ns.global, globalSnapshot)
+        if ns.RefreshMinimapButton then ns.RefreshMinimapButton() end
+        if ns.RefreshBlizzardActionBarSuppression then
+            ns.RefreshBlizzardActionBarSuppression()
+        end
     end
 
     local success,
