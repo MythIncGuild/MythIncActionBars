@@ -32,3 +32,5 @@ ConfigGeneral.lua
 ConfigProfiles.lua
 Config.lua
 PetBar.lua
+StanceBar.lua
+SpecialBarIntegration.lua

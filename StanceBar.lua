@@ -1,11 +1,11 @@
 local addonName, ns = ...
 
 local defaults = {
-    enabled = true, columns = 10, buttonSize = 36, spacing = 4, scale = 1,
-    x = 0, y = -150, hideMounted = false, hideVehicle = true,
+    enabled = true, columns = 6, buttonSize = 36, spacing = 4, scale = 1,
+    x = 0, y = -100, hideMounted = false, hideVehicle = true,
     combatOnly = false, keybinds = {},
 }
-ns.defaults.petBar = defaults
+ns.defaults.stanceBar = defaults
 
 local bar, mover, dialog, nativeBar
 local owned = false
@@ -27,8 +27,8 @@ end
 
 local function Settings()
     if not ns.db then return nil end
-    if type(ns.db.petBar) ~= "table" then ns.db.petBar = Copy(defaults) end
-    local settings = ns.db.petBar
+    if type(ns.db.stanceBar) ~= "table" then ns.db.stanceBar = Copy(defaults) end
+    local settings = ns.db.stanceBar
     for key, value in pairs(defaults) do
         if settings[key] == nil then settings[key] = Copy(value) end
     end
@@ -36,12 +36,15 @@ local function Settings()
     return settings
 end
 
+local function FormCount()
+    return math.max(0, math.min(10, GetNumShapeshiftForms() or 0))
+end
+
 local function Message(text)
     print("|cff7fd5ffMythInc Action Bars:|r " .. text)
 end
 
 local function UsedByActionBar(key)
-    if ns.IsStanceKeybindInUse and ns.IsStanceKeybindInUse(key) then return true end
     for _, settings in pairs(ns.db.bars or {}) do
         if settings.enabled then
             for _, entry in pairs(settings.keybinds or {}) do
@@ -49,15 +52,37 @@ local function UsedByActionBar(key)
             end
         end
     end
+    local pet = ns.db.petBar
+    if pet and pet.enabled then
+        for _, value in pairs(pet.keybinds or {}) do
+            if value == key then return true end
+        end
+    end
+    return false
+end
+
+function ns.IsStanceKeybindInUse(key)
+    local settings = Settings()
+    if not settings or not settings.enabled then return false end
+    -- A pre-existing duplicate profile entry keeps the pet binding active.
+    local pet = ns.db.petBar
+    if pet and pet.enabled then
+        for _, value in pairs(pet.keybinds or {}) do
+            if value == key then return false end
+        end
+    end
+    for index = 1, FormCount() do
+        if settings.keybinds[index] == key then return true end
+    end
     return false
 end
 
 local function UpdateHotkeys()
     if not owned then return end
     for index, button in ipairs(nativeBar.actionButtons) do
-        local key = appliedKeys[index] or GetBindingKey("BONUSACTIONBUTTON" .. index)
+        local key = appliedKeys[index] or GetBindingKey("SHAPESHIFTBUTTON" .. index)
         button.HotKey:SetText(key and ns.FormatKeybind(key) or "")
-        button.HotKey:SetShown(key ~= nil)
+        button.HotKey:SetShown(index <= FormCount() and key ~= nil)
     end
 end
 
@@ -67,10 +92,10 @@ local function ApplyBindings()
     wipe(appliedKeys)
     local settings = Settings()
     if settings and settings.enabled and owned then
-        for index = 1, 10 do
+        for index = 1, math.min(FormCount(), #nativeBar.actionButtons) do
             local key = settings.keybinds[index]
             if type(key) == "string" and key ~= "" and not UsedByActionBar(key) then
-                SetOverrideBinding(bindingOwner, false, key, "BONUSACTIONBUTTON" .. index)
+                SetOverrideBinding(bindingOwner, false, key, "SHAPESHIFTBUTTON" .. index)
                 appliedKeys[index] = key
             end
         end
@@ -88,8 +113,9 @@ local function VisibilityDriver(settings)
         conditions[#conditions + 1] = "[possessbar] hide"
     end
     if settings.hideMounted then conditions[#conditions + 1] = "[mounted] hide" end
-    conditions[#conditions + 1] = settings.combatOnly
-        and "[pet,combat] show" or "[pet] show"
+    if FormCount() > 0 then
+        conditions[#conditions + 1] = settings.combatOnly and "[combat] show" or "show"
+    end
     conditions[#conditions + 1] = "hide"
     return table.concat(conditions, "; ")
 end
@@ -98,17 +124,19 @@ local function Layout()
     if InCombatLockdown() then pending = true; return end
     if not owned then return end
     local settings = Settings()
-    local columns = math.max(1, math.min(10, math.floor(tonumber(settings.columns) or 10)))
+    local count = math.max(1, FormCount())
+    local columns = math.max(1, math.min(count, math.floor(tonumber(settings.columns) or 6)))
     local size = math.max(24, math.min(64, tonumber(settings.buttonSize) or 36))
     local spacing = math.max(0, math.min(20, tonumber(settings.spacing) or 4))
     local scale = math.max(0.5, math.min(2, tonumber(settings.scale) or 1))
-    local rows = math.ceil(10 / columns)
+    bar.mythIncFormCount = FormCount()
+    local rows = math.ceil(count / columns)
     bar:SetSize(columns * size + (columns - 1) * spacing,
         rows * size + (rows - 1) * spacing)
     bar:SetScale(scale)
     bar:ClearAllPoints()
     bar:SetPoint("CENTER", UIParent, "CENTER", tonumber(settings.x) or 0,
-        tonumber(settings.y) or -150)
+        tonumber(settings.y) or -100)
     for index, button in ipairs(nativeBar.actionButtons) do
         button:ClearAllPoints()
         local saved = originalButtons[index]
@@ -142,7 +170,8 @@ local function Restore()
         button:SetSize(saved.width, saved.height)
         button:SetScale(saved.scale)
         for _, point in ipairs(saved.points) do button:SetPoint(unpack(point)) end
-        button:SetHotkeys()
+        button.HotKey:SetText(saved.hotkeyText or "")
+        button.HotKey:SetShown(saved.hotkeyShown)
     end
     nativeBar:SetParent(originalParent)
     if nativeBar.Update then nativeBar:Update() end
@@ -175,7 +204,7 @@ local function CreateMover()
     local label = mover:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     label:SetPoint("CENTER")
     label:SetTextColor(1, 1, 1, 1)
-    label:SetText("Pet Bar")
+    label:SetText("Stance Bar")
     mover.Label = label
     bar:SetClampedToScreen(true)
     local dragging = false
@@ -218,13 +247,13 @@ local function CreateMover()
 end
 
 local function TakeOwnership()
-    nativeBar = _G.PetActionBar
+    nativeBar = _G.StanceBar
     if not nativeBar or not nativeBar.actionButtons or #nativeBar.actionButtons ~= 10 then
-        Message("The Blizzard pet buttons are unavailable; leaving the original pet bar unchanged.")
+        Message("The Blizzard stance buttons are unavailable; leaving the original stance bar unchanged.")
         return false
     end
     if not bar then
-        bar = CreateFrame("Frame", "MythIncActionBarsPetBar", UIParent,
+        bar = CreateFrame("Frame", "MythIncActionBarsStanceBar", UIParent,
             "SecureHandlerStateTemplate")
         bar:SetFrameStrata("MEDIUM")
         CreateMover()
@@ -233,8 +262,9 @@ local function TakeOwnership()
         originalParent = nativeBar:GetParent()
         for index, button in ipairs(nativeBar.actionButtons) do
             local saved = { parent = button:GetParent(), width = button:GetWidth(),
-                height = button:GetHeight(), scale = button:GetScale(), points = {} }
-            -- Small pet buttons have artwork larger than their clickable frame.
+                height = button:GetHeight(), scale = button:GetScale(), points = {},
+                hotkeyText = button.HotKey:GetText(), hotkeyShown = button.HotKey:IsShown() }
+            -- Small stance buttons have artwork larger than their clickable frame.
             -- Scale the complete native button to fit the cell, including its border.
             saved.artSize = math.max(saved.width, saved.height, 35)
             for _, region in ipairs({ button.icon, button.NormalTexture,
@@ -246,18 +276,25 @@ local function TakeOwnership()
             end
             originalButtons[index] = saved
             button:SetParent(bar)
-            if not button.mythIncPetHotkeyHook then
-                hooksecurefunc(button, "SetHotkeys", UpdateHotkeys)
-                button.mythIncPetHotkeyHook = true
-            end
         end
         owned = true
     end
     nativeBar:SetParent(hiddenParent)
+    if not nativeBar.mythIncStanceUpdateHook then
+        hooksecurefunc(nativeBar, "UpdateState", function()
+            if not owned then return end
+            UpdateHotkeys()
+            if FormCount() ~= bar.mythIncFormCount then
+                if InCombatLockdown() then pending = true
+                else C_Timer.After(0, ns.RefreshStanceBar) end
+            end
+        end)
+        nativeBar.mythIncStanceUpdateHook = true
+    end
     return true
 end
 
-function ns.RefreshPetBar()
+function ns.RefreshStanceBar()
     if InCombatLockdown() then pending = true; return false end
     local settings = Settings()
     if not settings then return false end
@@ -274,7 +311,7 @@ end
 
 local function SetUnlocked(value)
     if InCombatLockdown() then
-        if value then Message("Pet bar positioning cannot change during combat.")
+        if value then Message("Stance bar positioning cannot change during combat.")
         else
             unlocked = false
             if mover then mover.StopDrag(); mover:Hide() end
@@ -292,30 +329,30 @@ local function CreateDialog()
     local parent = _G.MythIncActionBarsConfig
     if not parent then return end
     local widgets = ns.ConfigWidgets
-    dialog = CreateFrame("Frame", "MythIncActionBarsPetSettings", parent, "BackdropTemplate")
+    dialog = CreateFrame("Frame", "MythIncActionBarsStanceSettings", parent, "BackdropTemplate")
     dialog:SetAllPoints(parent)
     dialog:SetFrameLevel(parent:GetFrameLevel() + 100)
     dialog:EnableMouse(true)
     widgets.SetBackdrop(dialog, ns.Media.colors.background)
-    widgets.CreateText(dialog, "MYTH INC  |  PET ACTION BAR", 18, 24, -20)
+    widgets.CreateText(dialog, "MYTH INC  |  STANCE / FORM BAR", 18, 24, -20)
     widgets.CreateText(dialog, "Changes use the main menu's Apply / Revert controls.", 11, 24, -48, true)
     widgets.CreateButton(dialog, "Back", 100, 30, 944, -18, function() dialog:Hide() end)
     local controls = {}
     local function SetValue(key, value)
         if InCombatLockdown() then
-            Message("Pet bar settings cannot change during combat.")
+            Message("Stance bar settings cannot change during combat.")
             dialog:Refresh()
             return
         end
         Settings()[key] = value
-        ns.RefreshPetBar()
+        ns.RefreshStanceBar()
     end
     local function Check(label, key, x, y)
         controls[#controls + 1] = widgets.CreateCheckButton(dialog, label, x, y,
             function() return Settings()[key] end,
             function(value) SetValue(key, value) end)
     end
-    Check("Enable Myth Inc pet bar", "enabled", 24, -82)
+    Check("Enable Myth Inc stance bar", "enabled", 24, -82)
     Check("Hide while mounted", "hideMounted", 24, -124)
     Check("Hide in vehicles / override states", "hideVehicle", 24, -166)
     Check("Show only in combat", "combatOnly", 24, -208)
@@ -326,7 +363,7 @@ local function CreateDialog()
         if InCombatLockdown() then Message("Cannot reset position during combat."); return end
         local settings = Settings()
         settings.x, settings.y = defaults.x, defaults.y
-        ns.RefreshPetBar()
+        ns.RefreshStanceBar()
     end)
     local function Slider(label, key, low, high, step, x, y)
         controls[#controls + 1] = widgets.CreateSlider(dialog, label, low, high, step, x, y,
@@ -348,9 +385,9 @@ local function CreateDialog()
     Slider("Scale", "scale", 0.5, 2, 0.05, 264, -364)
     Slider("X Position", "x", -1000, 1000, 1, 24, -458)
     Slider("Y Position", "y", -1000, 1000, 1, 264, -458)
-    widgets.CreateText(dialog, "Pet abilities: left-click to use; right-click to toggle autocast.\nDrag uses Blizzard's action-lock / pickup-modifier rules.", 11, 24, -572, true)
-    widgets.CreateText(dialog, "PET KEYBINDS", 14, 550, -86)
-    widgets.CreateText(dialog, "Click a binding, then press a key. Escape cancels.\nDelete / Backspace clears your custom binding.\nExisting Blizzard pet bindings continue to work.", 11, 550, -116, true)
+    widgets.CreateText(dialog, "Click a button to select that form or stance.\nButtons follow Blizzard's form order and available abilities.", 11, 24, -572, true)
+    widgets.CreateText(dialog, "STANCE / FORM KEYBINDS", 14, 550, -86)
+    widgets.CreateText(dialog, "Click a binding, then press a key. Escape cancels.\nDelete / Backspace clears your custom binding.\nExisting Blizzard stance bindings continue to work.", 11, 550, -116, true)
     local bindButtons = {}
     local capturing
     local function StopCapture()
@@ -362,7 +399,8 @@ local function CreateDialog()
         local y = -192 - (index - 1) * 38
         widgets.CreateText(dialog, "Slot " .. index, 11, 550, y - 8)
         bindButtons[index] = widgets.CreateButton(dialog, "", 360, 30, 636, y, function()
-            if InCombatLockdown() then Message("Pet bindings cannot change during combat."); return end
+            if InCombatLockdown() then Message("Stance bindings cannot change during combat."); return end
+            if index > FormCount() then return end
             capturing = index
             dialog:EnableKeyboard(true)
             dialog:SetPropagateKeyboardInput(false)
@@ -376,9 +414,11 @@ local function CreateDialog()
         local binding = ns.BuildCapturedKey(key)
         if key == "BACKSPACE" or key == "DELETE" then binding = nil
         elseif not binding then return end
-        if InCombatLockdown() then StopCapture(); dialog:Refresh(); return end
+        if InCombatLockdown() or index > FormCount() then
+            StopCapture(); dialog:Refresh(); return
+        end
         if binding and UsedByActionBar(binding) then
-            Message("That key belongs to an enabled action or stance bar. Choose another key or clear that binding first.")
+            Message("That key belongs to an enabled action or pet bar. Choose another key or clear that binding first.")
             StopCapture(); dialog:Refresh(); return
         end
         local settings = Settings()
@@ -394,21 +434,29 @@ local function CreateDialog()
         for _, control in ipairs(controls) do control:Refresh() end
         for index, button in ipairs(bindButtons) do
             local custom = Settings().keybinds[index]
-            local key = custom or GetBindingKey("BONUSACTIONBUTTON" .. index)
-            local name, _, isToken = GetPetActionInfo(index)
-            if isToken then name = _G[name] end
-            button.label:SetText((name or "Pet action " .. index) .. "  |  "
+            local key = custom or GetBindingKey("SHAPESHIFTBUTTON" .. index)
+            local available = index <= FormCount()
+            local name
+            if available then
+                local _, _, _, spellID = GetShapeshiftFormInfo(index)
+                local info = spellID and C_Spell.GetSpellInfo(spellID)
+                name = info and info.name
+                button:Enable()
+            else
+                button:Disable()
+            end
+            button.label:SetText(available and ((name or "Form " .. index) .. "  |  "
                 .. (key and ns.FormatKeybind(key) or "Unbound")
-                .. (custom and "" or " (Blizzard)"))
+                .. (custom and "" or " (Blizzard)")) or "Unavailable for this character")
         end
     end
     dialog:SetScript("OnHide", function() StopCapture(); SetUnlocked(false) end)
     dialog:Hide()
 end
 
-function ns.OpenPetBarSettings()
-    if _G.MythIncActionBarsStanceSettings then
-        _G.MythIncActionBarsStanceSettings:Hide()
+function ns.OpenStanceBarSettings()
+    if _G.MythIncActionBarsPetSettings then
+        _G.MythIncActionBarsPetSettings:Hide()
     end
     if not _G.MythIncActionBarsConfig or not _G.MythIncActionBarsConfig:IsShown() then
         ns.ToggleConfig()
@@ -420,15 +468,15 @@ end
 local createLayout = ns.CreateLayoutConfigPage
 ns.CreateLayoutConfigPage = function(parent, context)
     local page = createLayout(parent, context)
-    ns.ConfigWidgets.CreateButton(page, "Pet Bar Settings", 160, 30, 850, -4,
-        ns.OpenPetBarSettings)
+    ns.ConfigWidgets.CreateButton(page, "Stance / Forms", 160, 30, 680, -4,
+        ns.OpenStanceBarSettings)
     return page
 end
 
 local refreshProfile = ns.RefreshAllBarsFromProfile
 ns.RefreshAllBarsFromProfile = function(...)
     local success, reason = refreshProfile(...)
-    if success then SetUnlocked(false); ns.RefreshPetBar() end
+    if success then SetUnlocked(false); ns.RefreshStanceBar() end
     return success, reason
 end
 
@@ -446,12 +494,14 @@ ns.SetAllBarsUnlocked = function(value)
     return success, reason
 end
 
-SLASH_MYTHINCPETBAR1 = "/miabpet"
-SlashCmdList.MYTHINCPETBAR = ns.OpenPetBarSettings
+SLASH_MYTHINCSTANCEBAR1 = "/miabstance"
+SlashCmdList.MYTHINCSTANCEBAR = ns.OpenStanceBarSettings
 
 local events = CreateFrame("Frame")
 for _, event in ipairs({ "PLAYER_LOGIN", "PLAYER_ENTERING_WORLD", "PLAYER_REGEN_ENABLED",
-    "PLAYER_REGEN_DISABLED", "EDIT_MODE_LAYOUTS_UPDATED", "UPDATE_BINDINGS", "PET_BAR_UPDATE" }) do
+    "PLAYER_REGEN_DISABLED", "EDIT_MODE_LAYOUTS_UPDATED", "UPDATE_BINDINGS",
+    "UPDATE_SHAPESHIFT_FORMS", "UPDATE_SHAPESHIFT_FORM", "UPDATE_SHAPESHIFT_COOLDOWN",
+    "PLAYER_SPECIALIZATION_CHANGED", "SPELLS_CHANGED" }) do
     events:RegisterEvent(event)
 end
 events:SetScript("OnEvent", function(_, event)
@@ -460,24 +510,12 @@ events:SetScript("OnEvent", function(_, event)
         if dialog and dialog:IsShown() then dialog:Hide() end
         return
     end
-    if event == "PET_BAR_UPDATE" or event == "UPDATE_BINDINGS" then
-        ApplyBindings()
+    if event == "UPDATE_BINDINGS" or event == "UPDATE_SHAPESHIFT_FORM"
+        or event == "UPDATE_SHAPESHIFT_COOLDOWN" then
+        if event == "UPDATE_BINDINGS" then ApplyBindings() else UpdateHotkeys() end
         if dialog and dialog:IsShown() then dialog:Refresh() end
         return
     end
     if event == "PLAYER_REGEN_ENABLED" and not pending then return end
-    ns.RefreshPetBar()
-end)
-
-local rangeElapsed = 0
--- The hidden Blizzard parent no longer runs its normal range update.
-events:SetScript("OnUpdate", function(_, elapsed)
-    if not owned or not bar:IsShown() then return end
-    rangeElapsed = rangeElapsed + elapsed
-    if rangeElapsed < 0.2 then return end
-    rangeElapsed = 0
-    for index, button in ipairs(nativeBar.actionButtons) do
-        local _, _, _, _, _, _, _, checksRange, inRange = GetPetActionInfo(index)
-        ActionButton_UpdateRangeIndicator(button, checksRange, inRange)
-    end
+    ns.RefreshStanceBar()
 end)
