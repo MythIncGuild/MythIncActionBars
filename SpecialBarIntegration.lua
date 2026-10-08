@@ -2,19 +2,13 @@ local addonName, ns = ...
 
 local groups = {
     {
-        key = "petBar",
-        name = "Pet Bar",
-        native = "PetActionBar",
-        carrier = "MythIncActionBarsPetBar",
-        command = "BONUSACTIONBUTTON",
+        key = "petBar", name = "Pet Bar", native = "PetActionBar",
+        carrier = "MythIncActionBarsPetBar", command = "BONUSACTIONBUTTON",
         menu = "MythIncActionBarsPetSettings",
     },
     {
-        key = "stanceBar",
-        name = "Stance / Form Bar",
-        native = "StanceBar",
-        carrier = "MythIncActionBarsStanceBar",
-        command = "SHAPESHIFTBUTTON",
+        key = "stanceBar", name = "Stance / Form Bar", native = "StanceBar",
+        carrier = "MythIncActionBarsStanceBar", command = "SHAPESHIFTBUTTON",
         menu = "MythIncActionBarsStanceSettings",
     },
 }
@@ -32,15 +26,20 @@ local function Message(text)
 end
 
 local function Settings(group)
+    if group.GetSettings then
+        return group.GetSettings()
+    end
+
     return ns.db and ns.db[group.key]
 end
 
 local function Count(group)
+    if group.GetCount then
+        return group.GetCount()
+    end
+
     if group.key == "stanceBar" then
-        return math.max(
-            0,
-            math.min(10, GetNumShapeshiftForms() or 0)
-        )
+        return math.max(0, math.min(10, GetNumShapeshiftForms() or 0))
     end
 
     return 10
@@ -57,14 +56,17 @@ local function ShowHint(overlay)
         and settings.keybinds
         and settings.keybinds[overlay.index]
 
-    local key = custom
-        or GetBindingKey(
-            overlay.group.command .. overlay.index
+    local inherited = overlay.group.GetInheritedKey
+        and overlay.group.GetInheritedKey(overlay.index)
+        or (
+            overlay.group.command
+            and GetBindingKey(overlay.group.command .. overlay.index)
         )
 
+    local key = custom or inherited
+
     GameTooltip:AddLine(
-        "Current: "
-            .. (key and ns.FormatKeybind(key) or "Unbound"),
+        "Current: " .. (key and ns.FormatKeybind(key) or "Unbound"),
         1, 1, 1
     )
 
@@ -84,9 +86,7 @@ local function Conflicts(key, group)
     for _, settings in pairs(ns.db.bars or {}) do
         if settings.enabled then
             for _, entry in pairs(settings.keybinds or {}) do
-                if entry.primary == key
-                    or entry.secondary == key
-                then
+                if entry.primary == key or entry.secondary == key then
                     return true
                 end
             end
@@ -96,10 +96,7 @@ local function Conflicts(key, group)
     for _, other in ipairs(groups) do
         local settings = Settings(other)
 
-        if other ~= group
-            and settings
-            and settings.enabled
-        then
+        if other ~= group and settings and settings.enabled then
             for index = 1, Count(other) do
                 if (settings.keybinds or {})[index] == key then
                     return true
@@ -111,59 +108,51 @@ local function Conflicts(key, group)
     return false
 end
 
-local function Bind(key)
-    if InCombatLockdown()
-        or not ns.IsKeybindModeActive()
-        or not hovered
-    then
-        return
+function ns.SetSpecialBarBinding(group, index, key)
+    if InCombatLockdown() then
+        return false
     end
 
-    local target = hovered
-    local settings = Settings(target.group)
-    local carrier = _G[target.group.carrier]
+    local settings = Settings(group)
 
     if not settings
         or not settings.enabled
-        or not carrier
-        or target:GetParent():GetParent() ~= carrier
-        or not target:IsVisible()
-        or target.index > Count(target.group)
+        or index > Count(group)
     then
-        return
+        return false
     end
 
-    if Conflicts(key, target.group) then
-        Message(
-            "That key belongs to another enabled bar. Clear that binding first."
-        )
-        return
+    if Conflicts(key, group) then
+        Message("That key belongs to another enabled bar. Clear that binding first.")
+        return false
     end
 
     settings.keybinds = settings.keybinds or {}
 
-    for index, value in pairs(settings.keybinds) do
+    for slot, value in pairs(settings.keybinds) do
         if key and value == key then
-            settings.keybinds[index] = nil
+            settings.keybinds[slot] = nil
         end
     end
 
-    settings.keybinds[target.index] = key
+    settings.keybinds[index] = key
 
     if not key then
-        -- Clear inherited Blizzard bindings as well.
-        local command = target.group.command .. target.index
-        local inherited = { GetBindingKey(command) }
-        local changed = false
+        if group.ClearInherited then
+            group.ClearInherited(index)
+        elseif group.command then
+            local inherited = { GetBindingKey(group.command .. index) }
+            local changed = false
 
-        for _, inheritedKey in ipairs(inherited) do
-            if SetBinding(inheritedKey) then
-                changed = true
+            for _, inheritedKey in ipairs(inherited) do
+                if SetBinding(inheritedKey) then
+                    changed = true
+                end
             end
-        end
 
-        if changed then
-            SaveBindings(GetCurrentBindingSet())
+            if changed then
+                SaveBindings(GetCurrentBindingSet())
+            end
         end
     end
 
@@ -173,37 +162,49 @@ local function Bind(key)
         ns.RefreshConfig()
     end
 
-    for _, group in ipairs(groups) do
-        local menu = _G[group.menu]
+    for _, targetGroup in ipairs(groups) do
+        local menu = _G[targetGroup.menu]
 
         if menu and menu.Refresh then
             menu:Refresh()
         end
     end
 
-    ShowHint(target)
+    return true
+end
+
+local function Bind(key)
+    if InCombatLockdown()
+        or not ns.IsKeybindModeActive()
+        or not hovered
+    then
+        return
+    end
+
+    local target = hovered
+    local carrier = _G[target.group.carrier]
+
+    if not carrier
+        or target:GetParent():GetParent() ~= carrier
+        or not target:IsVisible()
+    then
+        return
+    end
+
+    if ns.SetSpecialBarBinding(target.group, target.index, key) then
+        ShowHint(target)
+    end
 end
 
 local function CreateOverlay(group, index, button)
-    local overlay = CreateFrame(
-        "Frame",
-        nil,
-        button,
-        "BackdropTemplate"
-    )
-
+    local overlay = CreateFrame("Frame", nil, button, "BackdropTemplate")
     overlay:SetAllPoints(button)
     overlay:SetFrameLevel(button:GetFrameLevel() + 25)
-
     overlay:SetBackdrop({
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 2,
     })
-
-    overlay:SetBackdropBorderColor(
-        0.15, 0.65, 0.68, 0.9
-    )
-
+    overlay:SetBackdropBorderColor(0.15, 0.65, 0.68, 0.9)
     overlay:EnableMouse(true)
     overlay:EnableMouseWheel(true)
 
@@ -212,19 +213,13 @@ local function CreateOverlay(group, index, button)
 
     overlay:SetScript("OnEnter", function(self)
         hovered = self
-
-        self:SetBackdropBorderColor(
-            0.2, 0.9, 0.9, 1
-        )
-
+        self:SetBackdropBorderColor(0.2, 0.9, 0.9, 1)
         listener:SetPropagateKeyboardInput(false)
         ShowHint(self)
     end)
 
     overlay:SetScript("OnLeave", function(self)
-        self:SetBackdropBorderColor(
-            0.15, 0.65, 0.68, 0.9
-        )
+        self:SetBackdropBorderColor(0.15, 0.65, 0.68, 0.9)
 
         if hovered == self then
             hovered = nil
@@ -241,41 +236,28 @@ local function CreateOverlay(group, index, button)
         end
     end)
 
-    overlay:SetScript(
-        "OnMouseDown",
-        function(_, mouseButton)
-            if mouseButton == "LeftButton"
-                or mouseButton == "RightButton"
-            then
-                return
-            end
-
-            local base = ns.NormalizeKeybindMouseButton(
-                mouseButton
-            )
-
-            local key = base and ns.BuildCapturedKey(base)
-
-            if key then
-                Bind(key)
-            end
+    overlay:SetScript("OnMouseDown", function(_, mouseButton)
+        if mouseButton == "LeftButton" or mouseButton == "RightButton" then
+            return
         end
-    )
 
-    overlay:SetScript(
-        "OnMouseWheel",
-        function(_, delta)
-            local key = ns.BuildCapturedKey(
-                delta > 0
-                    and "MOUSEWHEELUP"
-                    or "MOUSEWHEELDOWN"
-            )
+        local base = ns.NormalizeKeybindMouseButton(mouseButton)
+        local key = base and ns.BuildCapturedKey(base)
 
-            if key then
-                Bind(key)
-            end
+        if key then
+            Bind(key)
         end
-    )
+    end)
+
+    overlay:SetScript("OnMouseWheel", function(_, delta)
+        local key = ns.BuildCapturedKey(
+            delta > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN"
+        )
+
+        if key then
+            Bind(key)
+        end
+    end)
 
     overlay:Hide()
     overlays[button] = overlay
@@ -303,17 +285,15 @@ local function RefreshOverlays()
 
     for _, group in ipairs(groups) do
         local settings = Settings(group)
-        local native = _G[group.native]
+        local native = group.native and _G[group.native]
         local carrier = _G[group.carrier]
 
-        if settings
-            and settings.enabled
-            and native
-            and carrier
-        then
-            for index, button in ipairs(
-                native.actionButtons or {}
-            ) do
+        local buttons = group.GetButtons
+            and group.GetButtons()
+            or (native and native.actionButtons)
+
+        if settings and settings.enabled and buttons and carrier then
+            for index, button in ipairs(buttons) do
                 if index <= Count(group)
                     and button:GetParent() == carrier
                     and button:IsVisible()
@@ -321,10 +301,7 @@ local function RefreshOverlays()
                     local overlay = overlays[button]
                         or CreateOverlay(group, index, button)
 
-                    overlay:SetFrameLevel(
-                        button:GetFrameLevel() + 25
-                    )
-
+                    overlay:SetFrameLevel(button:GetFrameLevel() + 25)
                     wanted[overlay] = true
                 end
             end
@@ -335,6 +312,12 @@ local function RefreshOverlays()
         overlay:SetShown(wanted[overlay] == true)
     end
 end
+
+function ns.RegisterSpecialBarBindingTarget(group)
+    groups[#groups + 1] = group
+end
+
+ns.RefreshSpecialBarBindingTargets = RefreshOverlays
 
 listener:SetScript("OnKeyDown", function(_, key)
     if not ns.IsKeybindModeActive() then
@@ -370,8 +353,6 @@ end)
 local setMode = ns.SetKeybindMode
 
 ns.SetKeybindMode = function(enabled, ...)
-    -- The original keybind listener also handles Escape.
-    -- Keep binding mode active when Escape clears a hovered button.
     if not enabled
         and not InCombatLockdown()
         and ns.IsKeybindModeActive()
@@ -413,12 +394,7 @@ end
 
 local setButtonKeybind = ns.SetButtonKeybind
 
-ns.SetButtonKeybind = function(
-    barID,
-    buttonID,
-    slot,
-    key
-)
+ns.SetButtonKeybind = function(barID, buttonID, slot, key)
     if key then
         local normalized = string.upper(key)
 
@@ -427,9 +403,7 @@ ns.SetButtonKeybind = function(
 
             if settings and settings.enabled then
                 for index = 1, Count(group) do
-                    if (settings.keybinds or {})[index]
-                        == normalized
-                    then
+                    if (settings.keybinds or {})[index] == normalized then
                         Message(
                             "That key belongs to the "
                                 .. group.name
@@ -443,12 +417,7 @@ ns.SetButtonKeybind = function(
         end
     end
 
-    return setButtonKeybind(
-        barID,
-        buttonID,
-        slot,
-        key
-    )
+    return setButtonKeybind(barID, buttonID, slot, key)
 end
 
 local function AddMenuDragging(group)
@@ -499,9 +468,7 @@ listener:SetScript("OnUpdate", function(_, delta)
         AddMenuDragging(group)
     end
 
-    if not InCombatLockdown()
-        and ns.IsKeybindModeActive()
-    then
+    if not InCombatLockdown() and ns.IsKeybindModeActive() then
         RefreshOverlays()
     end
 end)
