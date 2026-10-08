@@ -35,3 +35,4 @@ PetBar.lua
 StanceBar.lua
 SpecialBarIntegration.lua
 ExtraAbilities.lua
+BindingLabels.lua
