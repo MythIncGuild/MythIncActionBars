@@ -37,4 +37,3 @@ SpecialBarIntegration.lua
 ExtraAbilities.lua
 BindingLabels.lua
 VehicleControls.lua
-SpecialMenuState.lua
