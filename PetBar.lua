@@ -633,3 +633,31 @@ events:SetScript("OnUpdate", function(_, elapsed)
         ActionButton_UpdateRangeIndicator(button, checksRange, inRange)
     end
 end)
+
+-- Use the shared configuration selector and pages.
+ns.CreateLayoutConfigPage = createLayout
+
+ns.SpecialConfigTargets.petBar = {
+    name = "Pet Bar",
+    GetSettings = Settings,
+    defaults = defaults,
+    Refresh = ns.RefreshPetBar,
+    IsUnlocked = function() return unlocked end,
+    SetUnlocked = SetUnlocked,
+    Count = function() return 10 end,
+    visibility = true,
+    grid = true,
+    scaledPosition = true,
+    Bind = function(index, key)
+        return ns.SetNativeBarBinding("petBar", index, key)
+    end,
+    Inherited = function(index)
+        return GetBindingKey("BONUSACTIONBUTTON" .. index)
+    end,
+}
+
+function ns.OpenPetBarSettings()
+    ns.SelectConfigBar("petBar")
+end
+
+SlashCmdList.MYTHINCPETBAR = ns.OpenPetBarSettings

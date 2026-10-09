@@ -755,3 +755,43 @@ events:SetScript("OnEvent", function(_, event)
         QueueRefresh()
     end
 end)
+
+-- Use the shared configuration selector and pages.
+ns.CreateLayoutConfigPage = createLayout
+
+for _, definition in ipairs(definitions) do
+    local target = definition
+
+    ns.SpecialConfigTargets[target.key] = {
+        name = target.name,
+        GetSettings = function() return Settings(target) end,
+        defaults = ns.defaults.extraAbilities[target.key],
+        Refresh = Refresh,
+        IsUnlocked = function()
+            local state = states[target.key]
+            return state and state.unlocked
+        end,
+        SetUnlocked = function(value)
+            Refresh()
+            local state = states[target.key]
+            if state then SetUnlocked(state, value) end
+        end,
+        Count = function() return 1 end,
+        Bind = function(index, key)
+            return ns.SetSpecialBarBinding(
+                bindingGroups[target.key], index, key
+            )
+        end,
+        Inherited = function()
+            if target.key == "extraAction" then
+                return GetBindingKey("EXTRAACTIONBUTTON1")
+            end
+        end,
+    }
+end
+
+function ns.OpenExtraAbilitySettings()
+    ns.SelectConfigBar("extraAction")
+end
+
+SlashCmdList.MYTHINCACTIONBARSEXTRA = ns.OpenExtraAbilitySettings

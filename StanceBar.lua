@@ -694,3 +694,31 @@ events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_ENABLED" and not pending then return end
     ns.RefreshStanceBar()
 end)
+
+-- Use the shared configuration selector and pages.
+ns.CreateLayoutConfigPage = createLayout
+
+ns.SpecialConfigTargets.stanceBar = {
+    name = "Stance / Forms",
+    GetSettings = Settings,
+    defaults = defaults,
+    Refresh = ns.RefreshStanceBar,
+    IsUnlocked = function() return unlocked end,
+    SetUnlocked = SetUnlocked,
+    Count = function() return FormCount() end,
+    visibility = true,
+    grid = true,
+    scaledPosition = true,
+    Bind = function(index, key)
+        return ns.SetNativeBarBinding("stanceBar", index, key)
+    end,
+    Inherited = function(index)
+        return GetBindingKey("SHAPESHIFTBUTTON" .. index)
+    end,
+}
+
+function ns.OpenStanceBarSettings()
+    ns.SelectConfigBar("stanceBar")
+end
+
+SlashCmdList.MYTHINCSTANCEBAR = ns.OpenStanceBarSettings

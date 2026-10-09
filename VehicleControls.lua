@@ -501,3 +501,26 @@ events:SetScript("OnEvent", function(_, event)
         end)
     end
 end)
+
+-- Use the shared configuration selector and pages.
+ns.CreateLayoutConfigPage = createLayout
+
+ns.SpecialConfigTargets.vehicleControls = {
+    name = "Vehicle Exit",
+    GetSettings = Settings,
+    defaults = defaults,
+    Refresh = Refresh,
+    IsUnlocked = function() return unlocked end,
+    SetUnlocked = SetUnlocked,
+    Count = function() return 1 end,
+    paging = true,
+    Bind = function(index, key)
+        return ns.SetSpecialBarBinding(group, index, key)
+    end,
+}
+
+function ns.OpenVehicleSettings()
+    ns.SelectConfigBar("vehicleControls")
+end
+
+SlashCmdList.MYTHINCACTIONBARSVEHICLE = ns.OpenVehicleSettings

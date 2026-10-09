@@ -4,6 +4,8 @@ ns.Movers = ns.Movers or {}
 
 local unlockedBars = {}
 local moveModeActive = false
+local placementReference
+local SNAP_DISTANCE, BAR_GAP = 10, 4
 
 local function GetBar(barID)
     return ns.Bars and ns.Bars[barID]
@@ -13,34 +15,374 @@ local function GetSettings(barID)
     return ns.db and ns.db.bars and ns.db.bars[barID]
 end
 
-local function GetCursorUIPosition()
-    local cursorX, cursorY = GetCursorPosition()
-    local scale = UIParent:GetEffectiveScale()
-    if not scale or scale <= 0 then scale = 1 end
-    return cursorX / scale, cursorY / scale
+local function Scale(bar)
+    local scale = bar:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    return scale > 0 and scale or 1
+end
+
+local function Rect(bar)
+    local x, y = bar:GetCenter()
+    if not x or not y then return end
+
+    local scale = Scale(bar)
+    local width = bar:GetWidth() * scale
+    local height = bar:GetHeight() * scale
+
+    x, y = x * scale, y * scale
+
+    return {
+        x = x,
+        y = y,
+        width = width,
+        height = height,
+        left = x - width / 2,
+        right = x + width / 2,
+        bottom = y - height / 2,
+        top = y + height / 2,
+    }
 end
 
 local function ApplyBarPosition(barID, x, y)
-    local bar = GetBar(barID)
-    local settings = GetSettings(barID)
-    if not bar or not settings then return end
+    local bar, settings = GetBar(barID), GetSettings(barID)
+    if not bar or not settings or InCombatLockdown() then
+        return false
+    end
 
     settings.position = settings.position or {}
-    settings.position.point = "CENTER"
-    settings.position.relativePoint = "CENTER"
-    settings.position.x = x
-    settings.position.y = y
+
+    local position = settings.position
+    position.point, position.relativePoint = "CENTER", "CENTER"
+    position.x, position.y = x, y
 
     bar:ClearAllPoints()
     bar:SetPoint("CENTER", UIParent, "CENTER", x, y)
+
+    return true
+end
+
+local function PlaceCenter(barID, x, y)
+    local bar = GetBar(barID)
+    if not bar then return false, "missing" end
+    if InCombatLockdown() then return false, "combat" end
+
+    local parentX, parentY = UIParent:GetCenter()
+    local scale = Scale(bar)
+
+    local success = ApplyBarPosition(
+        barID,
+        (x - parentX) / scale,
+        (y - parentY) / scale
+    )
+
+    if success and ns.RefreshBarMover then
+        ns.RefreshBarMover(barID)
+    end
+
+    if success and ns.RefreshConfig then
+        ns.RefreshConfig()
+    end
+
+    return success
+end
+
+function ns.GetPositionReferenceBars(barID)
+    local result = {}
+
+    for otherID, settings in pairs(ns.db and ns.db.bars or {}) do
+        local bar = GetBar(otherID)
+
+        if type(otherID) == "number"
+            and otherID ~= barID
+            and settings.enabled
+            and bar
+            and bar:IsShown()
+            and Rect(bar)
+        then
+            result[#result + 1] = otherID
+        end
+    end
+
+    table.sort(result)
+    return result
+end
+
+function ns.SetBarPlacementReference(barID)
+    placementReference = barID
+end
+
+function ns.GetBarSnapEnabled(barID)
+    local settings = GetSettings(barID)
+    if not settings then return false end
+
+    settings.position = settings.position or {}
+    return settings.position.snapEnabled ~= false
+end
+
+function ns.SetBarSnapEnabled(barID, enabled)
+    if InCombatLockdown() then return false, "combat" end
+
+    local settings = GetSettings(barID)
+    if not settings then return false, "missing" end
+
+    settings.position = settings.position or {}
+    settings.position.snapEnabled = enabled and true or false
+
+    return true
+end
+
+function ns.AlignBar(barID, referenceID, mode)
+    if InCombatLockdown() then return false, "combat" end
+
+    local bar = GetBar(barID)
+    local current = bar and Rect(bar)
+    if not current then return false, "missing" end
+
+    local x, y = current.x, current.y
+    local centerX, centerY = UIParent:GetCenter()
+
+    if mode == "screenX" then
+        x = centerX
+    elseif mode == "screenY" then
+        y = centerY
+    else
+        local reference = GetBar(referenceID)
+        local other = reference and Rect(reference)
+        local settings = GetSettings(referenceID)
+
+        if referenceID == barID
+            or not other
+            or not settings
+            or not settings.enabled
+            or not reference:IsShown()
+        then
+            return false, "reference"
+        end
+
+        if mode == "above" then
+            x = other.left + current.width / 2
+            y = other.top + BAR_GAP + current.height / 2
+        elseif mode == "below" then
+            x = other.left + current.width / 2
+            y = other.bottom - BAR_GAP - current.height / 2
+        elseif mode == "left" then
+            x = other.left - BAR_GAP - current.width / 2
+            y = other.top - current.height / 2
+        elseif mode == "right" then
+            x = other.right + BAR_GAP + current.width / 2
+            y = other.top - current.height / 2
+        elseif mode == "alignLeft" then
+            x = other.left + current.width / 2
+        elseif mode == "alignRight" then
+            x = other.right - current.width / 2
+        elseif mode == "alignTop" then
+            y = other.top - current.height / 2
+        elseif mode == "alignBottom" then
+            y = other.bottom + current.height / 2
+        else
+            return false, "invalid"
+        end
+    end
+
+    return PlaceCenter(barID, x, y)
+end
+
+local function SnapPosition(barID, x, y)
+    local bar = GetBar(barID)
+
+    if not ns.GetBarSnapEnabled(barID) or IsShiftKeyDown() then
+        return x, y, false
+    end
+
+    local scale = Scale(bar)
+    local parentX, parentY = UIParent:GetCenter()
+    local cx, cy = parentX + x * scale, parentY + y * scale
+    local halfWidth = bar:GetWidth() * scale / 2
+    local halfHeight = bar:GetHeight() * scale / 2
+
+    local bestX, bestY = cx, cy
+    local distanceX, distanceY = SNAP_DISTANCE + 0.001, SNAP_DISTANCE + 0.001
+
+    local function ConsiderX(value)
+        local distance = math.abs(value - cx)
+
+        if distance <= SNAP_DISTANCE and distance < distanceX then
+            bestX, distanceX = value, distance
+        end
+    end
+
+    local function ConsiderY(value)
+        local distance = math.abs(value - cy)
+
+        if distance <= SNAP_DISTANCE and distance < distanceY then
+            bestY, distanceY = value, distance
+        end
+    end
+
+    ConsiderX(parentX)
+    ConsiderY(parentY)
+    ConsiderX(halfWidth)
+    ConsiderX(UIParent:GetWidth() - halfWidth)
+    ConsiderY(halfHeight)
+    ConsiderY(UIParent:GetHeight() - halfHeight)
+
+    for _, otherID in ipairs(ns.GetPositionReferenceBars(barID)) do
+        local other = Rect(GetBar(otherID))
+
+        if cy + halfHeight >= other.bottom - SNAP_DISTANCE
+            and cy - halfHeight <= other.top + SNAP_DISTANCE
+        then
+            ConsiderX(other.left + halfWidth)
+            ConsiderX(other.right - halfWidth)
+            ConsiderX(other.x)
+            ConsiderX(other.left - BAR_GAP - halfWidth)
+            ConsiderX(other.right + BAR_GAP + halfWidth)
+        end
+
+        if cx + halfWidth >= other.left - SNAP_DISTANCE
+            and cx - halfWidth <= other.right + SNAP_DISTANCE
+        then
+            ConsiderY(other.bottom + halfHeight)
+            ConsiderY(other.top - halfHeight)
+            ConsiderY(other.y)
+            ConsiderY(other.bottom - BAR_GAP - halfHeight)
+            ConsiderY(other.top + BAR_GAP + halfHeight)
+        end
+    end
+
+    return (bestX - parentX) / scale,
+        (bestY - parentY) / scale,
+        distanceX <= SNAP_DISTANCE or distanceY <= SNAP_DISTANCE
+end
+
+local function Overlaps(barID)
+    local bar = GetBar(barID)
+    local current = bar and Rect(bar)
+    if not current then return false end
+
+    for _, id in ipairs(ns.GetPositionReferenceBars(barID)) do
+        local other = Rect(GetBar(id))
+
+        if current.left < other.right
+            and current.right > other.left
+            and current.bottom < other.top
+            and current.top > other.bottom
+        then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function AutoPlace(barID, referenceID)
+    local bar = GetBar(barID)
+    local current = bar and Rect(bar)
+    if not current then return end
+
+    local references = ns.GetPositionReferenceBars(barID)
+
+    for index, id in ipairs(references) do
+        if id == referenceID then
+            table.remove(references, index)
+            table.insert(references, 1, id)
+            break
+        end
+    end
+
+    local width, height = current.width, current.height
+
+    local function Free(x, y)
+        local left, right = x - width / 2, x + width / 2
+        local bottom, top = y - height / 2, y + height / 2
+
+        if left < 0
+            or right > UIParent:GetWidth()
+            or bottom < 0
+            or top > UIParent:GetHeight()
+        then
+            return false
+        end
+
+        for _, id in ipairs(references) do
+            local other = Rect(GetBar(id))
+
+            if left < other.right + BAR_GAP - 0.01
+                and right > other.left - BAR_GAP + 0.01
+                and bottom < other.top + BAR_GAP - 0.01
+                and top > other.bottom - BAR_GAP + 0.01
+            then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    for _, id in ipairs(references) do
+        local other = Rect(GetBar(id))
+
+        local candidates = {
+            {
+                other.left + width / 2,
+                other.bottom - BAR_GAP - height / 2,
+            },
+            {
+                other.left + width / 2,
+                other.top + BAR_GAP + height / 2,
+            },
+            {
+                other.right + BAR_GAP + width / 2,
+                other.top - height / 2,
+            },
+            {
+                other.left - BAR_GAP - width / 2,
+                other.top - height / 2,
+            },
+        }
+
+        for _, position in ipairs(candidates) do
+            if Free(position[1], position[2]) then
+                PlaceCenter(barID, position[1], position[2])
+                return
+            end
+        end
+    end
+
+    for y = UIParent:GetHeight() - height / 2,
+        height / 2,
+        -(height + BAR_GAP)
+    do
+        for x = width / 2,
+            UIParent:GetWidth() - width / 2,
+            width + BAR_GAP
+        do
+            if Free(x, y) then
+                PlaceCenter(barID, x, y)
+                return
+            end
+        end
+    end
+
+    print(
+        "|cff7fd5ffMythInc Action Bars:|r "
+        .. "No free position found for the new bar. "
+        .. "Unlock it to place it manually."
+    )
+end
+
+local function Cursor()
+    local x, y = GetCursorPosition()
+    local scale = UIParent:GetEffectiveScale()
+    if not scale or scale <= 0 then scale = 1 end
+
+    return x / scale, y / scale
 end
 
 local function CreateMover(barID)
-    local existing = ns.Movers[barID]
-    if existing then return existing end
+    if ns.Movers[barID] then return ns.Movers[barID] end
 
     local bar = GetBar(barID)
-    if not bar then return nil end
+    if not bar then return end
 
     local mover = CreateFrame(
         "Frame",
@@ -48,6 +390,7 @@ local function CreateMover(barID)
         bar,
         "BackdropTemplate"
     )
+
     mover:SetAllPoints(bar)
     mover:SetFrameLevel(bar:GetFrameLevel() + 50)
     mover:SetBackdrop({
@@ -55,58 +398,73 @@ local function CreateMover(barID)
         edgeFile = "Interface\\Buttons\\WHITE8x8",
         edgeSize = 1,
     })
-    mover:SetBackdropColor(0.05, 0.45, 0.60, 0.25)
-    mover:SetBackdropBorderColor(0.15, 0.75, 0.90, 1)
+
+    local function Colors(hover)
+        mover:SetBackdropColor(
+            0.05,
+            hover and 0.55 or 0.45,
+            hover and 0.72 or 0.60,
+            hover and 0.35 or 0.25
+        )
+
+        mover:SetBackdropBorderColor(
+            hover and 0.25 or 0.15,
+            hover and 0.90 or 0.75,
+            hover and 1 or 0.90,
+            1
+        )
+    end
+
+    Colors(false)
+
+    mover:SetScript("OnEnter", function() Colors(true) end)
+    mover:SetScript("OnLeave", function() Colors(false) end)
     mover:EnableMouse(true)
     mover:RegisterForDrag("LeftButton")
 
-    local label = mover:CreateFontString(
+    mover.Label = mover:CreateFontString(
         nil, "OVERLAY", "GameFontNormalSmall"
     )
-    label:SetPoint("CENTER")
-    label:SetTextColor(1, 1, 1, 1)
-    mover.Label = label
 
-    local dragging = false
-    local startCursorX, startCursorY = 0, 0
-    local startBarX, startBarY = 0, 0
-    local currentX, currentY = 0, 0
+    mover.Label:SetPoint("CENTER")
+    mover.Label:SetTextColor(1, 1, 1, 1)
 
-    mover:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(0.05, 0.55, 0.72, 0.35)
-        self:SetBackdropBorderColor(0.25, 0.90, 1, 1)
-    end)
-
-    mover:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(0.05, 0.45, 0.60, 0.25)
-        self:SetBackdropBorderColor(0.15, 0.75, 0.90, 1)
-    end)
+    local dragging, snapped = false, false
+    local startCursorX, startCursorY
+    local startX, startY, currentX, currentY
 
     mover:SetScript("OnDragStart", function()
-        if InCombatLockdown() then return end
+        if InCombatLockdown() or not ns.IsBarUnlocked(barID) then
+            return
+        end
 
         local settings = GetSettings(barID)
         if not settings or not settings.position then return end
 
+        startCursorX, startCursorY = Cursor()
+        startX = tonumber(settings.position.x) or 0
+        startY = tonumber(settings.position.y) or 0
+        currentX, currentY = startX, startY
         dragging = true
-        startCursorX, startCursorY = GetCursorUIPosition()
-        startBarX = tonumber(settings.position.x) or 0
-        startBarY = tonumber(settings.position.y) or 0
-        currentX, currentY = startBarX, startBarY
     end)
 
     mover:SetScript("OnUpdate", function()
         if not dragging then return end
 
-        local cursorX, cursorY = GetCursorUIPosition()
-        local deltaX = cursorX - startCursorX
-        local deltaY = cursorY - startCursorY
-        local settings = GetSettings(barID)
-        local scale = settings and tonumber(settings.scale) or 1
-        if scale <= 0 then scale = 1 end
+        if InCombatLockdown() then
+            dragging = false
+            return
+        end
 
-        currentX = startBarX + deltaX / scale
-        currentY = startBarY + deltaY / scale
+        local x, y = Cursor()
+        local scale = Scale(bar)
+
+        currentX, currentY, snapped = SnapPosition(
+            barID,
+            startX + (x - startCursorX) / scale,
+            startY + (y - startCursorY) / scale
+        )
+
         ApplyBarPosition(barID, currentX, currentY)
     end)
 
@@ -114,41 +472,47 @@ local function CreateMover(barID)
         if not dragging then return end
         dragging = false
 
-        currentX = math.floor(currentX + 0.5)
-        currentY = math.floor(currentY + 0.5)
+        if InCombatLockdown() then return end
+
+        if not snapped then
+            currentX = math.floor(currentX + 0.5)
+            currentY = math.floor(currentY + 0.5)
+        end
+
         ApplyBarPosition(barID, currentX, currentY)
 
         if ns.RefreshConfig then ns.RefreshConfig() end
     end)
 
+    mover:SetScript("OnHide", function() dragging = false end)
     mover:Hide()
+
     ns.Movers[barID] = mover
     return mover
 end
 
 function ns.RefreshBarMover(barID)
-    local bar = GetBar(barID)
-    local settings = GetSettings(barID)
+    local bar, settings = GetBar(barID), GetSettings(barID)
 
     if not bar or not settings then
-        local mover = ns.Movers[barID]
-        if mover then mover:Hide() end
+        if ns.Movers[barID] then ns.Movers[barID]:Hide() end
         return
     end
 
     local mover = CreateMover(barID)
-    if not mover then return end
 
     mover:ClearAllPoints()
     mover:SetAllPoints(bar)
     mover:SetFrameLevel(bar:GetFrameLevel() + 50)
     mover.Label:SetText(settings.name or ("Bar " .. barID))
 
-    local shouldShow = unlockedBars[barID]
+    mover:SetShown(
+        unlockedBars[barID]
         and settings.enabled
         and bar:IsShown()
-
-    mover:SetShown(shouldShow and true or false)
+        and true
+        or false
+    )
 end
 
 function ns.IsBarUnlocked(barID)
@@ -159,12 +523,11 @@ function ns.SetBarUnlocked(barID, unlocked)
     local settings = GetSettings(barID)
     if not settings then return false, "missing" end
     if InCombatLockdown() then return false, "combat" end
-    if unlocked and not settings.enabled then
-        return false, "disabled"
-    end
+    if unlocked and not settings.enabled then return false, "disabled" end
 
     unlockedBars[barID] = unlocked and true or nil
     ns.RefreshBarMover(barID)
+
     return true
 end
 
@@ -174,25 +537,30 @@ end
 
 function ns.GetUnlockedBarCount()
     local count = 0
+
     for barID in pairs(unlockedBars) do
         if ns.IsBarUnlocked(barID) then count = count + 1 end
     end
+
     return count
 end
 
 function ns.AreAllEnabledBarsUnlocked()
     if not ns.db or not ns.db.bars then return false end
 
-    local foundEnabled = false
-    for barID, settings in pairs(ns.db.bars) do
-        if type(barID) == "number"
+    local found = false
+
+    for id, settings in pairs(ns.db.bars) do
+        if type(id) == "number"
             and type(settings) == "table"
-            and settings.enabled then
-            foundEnabled = true
-            if not ns.IsBarUnlocked(barID) then return false end
+            and settings.enabled
+        then
+            found = true
+            if not ns.IsBarUnlocked(id) then return false end
         end
     end
-    return foundEnabled
+
+    return found
 end
 
 function ns.SetAllBarsUnlocked(unlocked)
@@ -200,15 +568,12 @@ function ns.SetAllBarsUnlocked(unlocked)
 
     moveModeActive = unlocked and true or false
 
-    for barID, settings in pairs(ns.db.bars) do
-        if type(barID) == "number"
-            and type(settings) == "table" then
-            if unlocked and settings.enabled then
-                unlockedBars[barID] = true
-            else
-                unlockedBars[barID] = nil
-            end
-            ns.RefreshBarMover(barID)
+    for id, settings in pairs(ns.db.bars) do
+        if type(id) == "number" and type(settings) == "table" then
+            unlockedBars[id] =
+                unlocked and settings.enabled and true or nil
+
+            ns.RefreshBarMover(id)
         end
     end
 
@@ -217,46 +582,69 @@ function ns.SetAllBarsUnlocked(unlocked)
 end
 
 function ns.ToggleAllBarsUnlocked()
-    if moveModeActive or ns.AreAllEnabledBarsUnlocked() then
-        return ns.SetAllBarsUnlocked(false)
-    end
-    return ns.SetAllBarsUnlocked(true)
+    return ns.SetAllBarsUnlocked(
+        not (moveModeActive or ns.AreAllEnabledBarsUnlocked())
+    )
 end
 
 function ns.LockAllBars()
     return ns.SetAllBarsUnlocked(false)
 end
 
-local eventFrame = CreateFrame("Frame")
-eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
-eventFrame:SetScript("OnEvent", function()
-    if moveModeActive or ns.GetUnlockedBarCount() > 0 then
-        ns.SetAllBarsUnlocked(false)
-    end
-end)
-
 local function InheritUnlock(barID)
-    if not InCombatLockdown() and ns.IsMoveModeActive() then
-        local settings = GetSettings(barID)
-        if settings and settings.enabled then
-            ns.SetBarUnlocked(barID, true)
-        end
+    local settings = GetSettings(barID)
+
+    if not InCombatLockdown()
+        and moveModeActive
+        and settings
+        and settings.enabled
+    then
+        ns.SetBarUnlocked(barID, true)
     end
 end
 
 local setBarEnabled = ns.SetBarEnabled
+
 ns.SetBarEnabled = function(barID, enabled)
     local settings = GetSettings(barID)
     local wasEnabled = settings and settings.enabled
 
     local result, reason = setBarEnabled(barID, enabled)
-    if enabled and not wasEnabled then InheritUnlock(barID) end
+
+    if enabled
+        and not wasEnabled
+        and settings
+        and settings.enabled
+    then
+        if Overlaps(barID) then
+            AutoPlace(barID, placementReference)
+        end
+
+        InheritUnlock(barID)
+    end
+
     return result, reason
 end
 
 local addBar = ns.AddBar
+
 ns.AddBar = function(...)
+    local reference = placementReference
     local barID, reason = addBar(...)
-    if type(barID) == "number" then InheritUnlock(barID) end
+
+    if type(barID) == "number" then
+        AutoPlace(barID, reference)
+        InheritUnlock(barID)
+    end
+
     return barID, reason
 end
+
+local events = CreateFrame("Frame")
+events:RegisterEvent("PLAYER_REGEN_DISABLED")
+
+events:SetScript("OnEvent", function()
+    if moveModeActive or ns.GetUnlockedBarCount() > 0 then
+        ns.SetAllBarsUnlocked(false)
+    end
+end)
