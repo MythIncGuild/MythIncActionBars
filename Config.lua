@@ -1,5 +1,4 @@
 local addonName, ns = ...
-
 local widgets = ns.ConfigWidgets
 local media = ns.Media
 local colors = media.colors
@@ -22,9 +21,9 @@ local confirmationMessage
 local confirmationButtons = {}
 local confirmationActions = {}
 local confirmationButtonCount = 0
+
 local allowConfigClose = false
 local suppressNextSessionStart = false
-
 local selectedBarID = 1
 local selectedCategory = "Layout"
 local selectedTopLevel = "Action Bars"
@@ -35,6 +34,8 @@ local profilesTab
 local actionBarSettingsSection
 local gridSpacingBox
 local gridSpacingLabel
+local gridOpacityBox
+local gridOpacityLabel
 local alignmentGridCheckbox
 local hideBlizzardCheckbox
 local barSelectorSection
@@ -121,7 +122,8 @@ end
 
 local function IsSelectedUnlocked()
     local target = GetTarget()
-    return target and target.IsUnlocked() or ns.IsBarUnlocked(selectedBarID)
+    return target and target.IsUnlocked()
+        or ns.IsBarUnlocked(selectedBarID)
 end
 
 local function UnlockSelected(value)
@@ -136,7 +138,6 @@ end
 local function GetFallbackBarID(deletedBarID)
     local ids = ns.GetBarIDs()
     if #ids == 0 then return nil end
-
     local previous
     local nextID
     for _, barID in ipairs(ids) do
@@ -169,7 +170,6 @@ local function EnsureSelectedBarVisible()
         ClampBarSelectorOffset()
         return
     end
-
     local row = math.floor((FindSelectedIndex() - 1) / BAR_COLUMNS)
     if row < barSelectorOffset then
         barSelectorOffset = row
@@ -194,7 +194,6 @@ local function RefreshCategoryPage()
         }) do
             frame:Hide()
         end
-
         if specialPage then
             specialPage:Show()
             specialPage:Refresh(target, selectedCategory)
@@ -249,7 +248,6 @@ end
 
 local function RefreshCategoryButtons()
     local target = GetTarget()
-
     local function Supported(name)
         return not target
             or name == "Layout"
@@ -265,8 +263,13 @@ local function RefreshCategoryButtons()
 
     for name, button in pairs(categoryButtons) do
         button:SetSelected(name == selectedCategory)
-        if Supported(name) then button:Enable() else button:Disable() end
+        if Supported(name) then
+            button:Enable()
+        else
+            button:Disable()
+        end
     end
+
     RefreshCategoryPage()
 end
 
@@ -277,7 +280,8 @@ end
 
 local function UpdateDynamicLayout()
     if not panel or not barSelectorSection
-        or not categoryFrame or not pageHost then
+        or not categoryFrame or not pageHost
+    then
         return
     end
 
@@ -285,20 +289,15 @@ local function UpdateDynamicLayout()
     barSelectorViewport:SetHeight(BAR_VISIBLE_ROWS * SELECTOR_ROW_HEIGHT)
 
     categoryFrame:ClearAllPoints()
-    categoryFrame:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 190
-    )
+    categoryFrame:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 190)
 
     pageHost:ClearAllPoints()
-    pageHost:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 238
-    )
+    pageHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 238)
     pageHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
 end
 
 local function RefreshBarSelector()
     if not barSelectorViewport then return end
-
     ClearBarButtons()
     ClampBarSelectorOffset()
 
@@ -332,7 +331,6 @@ local function RefreshBarSelector()
                     else
                         ns.SetBarEnabled(button.barID, value)
                     end
-
                     button.enableCheckbox:Refresh()
                     RefreshControls()
                 end
@@ -355,7 +353,6 @@ local function RefreshBarSelector()
         button.label:SetPoint("LEFT", button, "LEFT", 28, 0)
         button.label:SetPoint("RIGHT", button, "RIGHT", -4, 0)
         button.label:SetWordWrap(false)
-
         button.enableCheckbox:Refresh()
         button:SetSelected(barID == selectedBarID)
         button:Show()
@@ -410,7 +407,8 @@ local function RefreshBarSelector()
     end
 
     local specialIDs = {
-        "petBar", "stanceBar", "extraAction", "zoneAbility", "vehicleControls",
+        "petBar", "stanceBar", "extraAction",
+        "zoneAbility", "vehicleControls",
     }
 
     for index, id in ipairs(specialIDs) do
@@ -431,9 +429,19 @@ RefreshControls = function()
         local visible = ns.IsAlignmentGridEnabled()
         gridSpacingBox:SetShown(visible)
         gridSpacingLabel:SetShown(visible)
-
         if not gridSpacingBox:HasFocus() then
             gridSpacingBox:SetText(tostring(ns.GetAlignmentGridSpacing()))
+        end
+    end
+
+    if gridOpacityBox then
+        local visible = ns.IsAlignmentGridEnabled()
+        gridOpacityBox:SetShown(visible)
+        gridOpacityLabel:SetShown(visible)
+        if not gridOpacityBox:HasFocus() then
+            gridOpacityBox:SetText(
+                tostring(math.floor(ns.GetAlignmentGridOpacity() * 100 + 0.5))
+            )
         end
     end
 
@@ -496,13 +504,14 @@ function ns.RefreshConfig()
         EnsureSelectedBarVisible()
         RefreshBarSelector()
     end
+
     RefreshControls()
 end
 
 SelectBar = function(barID)
     if not GetConfigSettings(barID) then return end
-
     local oldBarID = selectedBarID
+
     if not ns.IsMoveModeActive() then
         local oldTarget = GetTarget(oldBarID)
         if oldTarget then
@@ -527,11 +536,11 @@ local function ResetSelectedBar()
     if target then
         for key, value in pairs(target.defaults) do
             if key ~= "enabled" and key ~= "keybinds"
-                and type(value) ~= "table" then
+                and type(value) ~= "table"
+            then
                 settings[key] = value
             end
         end
-
         target.Refresh()
         RefreshControls()
         return
@@ -540,6 +549,7 @@ local function ResetSelectedBar()
     local defaultSettings = ns.CreateDefaultBarSettings(
         selectedBarID, settings.enabled, settings.source
     )
+
     local currentName = settings.name
     local currentAssignments = settings.assignments
     local currentKeybinds = settings.keybinds
@@ -614,7 +624,6 @@ end
 
 local function FitConfigToScreen()
     if not panel then return end
-
     local targetHeight = isMinimized and MINIMIZED_HEIGHT or WINDOW_HEIGHT
     panel:SetScale(math.min(
         1,
@@ -641,9 +650,7 @@ SetTopLevelMode = function(mode)
     local showProfileActions = not isMinimized and mode ~= "General"
 
     if generalHost then generalHost:SetShown(showGeneral) end
-    if actionBarSettingsSection then
-        actionBarSettingsSection:SetShown(showActionBars)
-    end
+    if actionBarSettingsSection then actionBarSettingsSection:SetShown(showActionBars) end
     if barSelectorSection then barSelectorSection:SetShown(showActionBars) end
     if categoryFrame then categoryFrame:SetShown(showActionBars) end
     if pageHost then pageHost:SetShown(showActionBars) end
@@ -713,9 +720,7 @@ local function CreateConfirmationDialog()
 
     confirmationTitle = confirmationDialog:CreateFontString(nil, "OVERLAY")
     SetFont(confirmationTitle, 16, false)
-    confirmationTitle:SetPoint(
-        "TOPLEFT", confirmationDialog, "TOPLEFT", 22, -20
-    )
+    confirmationTitle:SetPoint("TOPLEFT", confirmationDialog, "TOPLEFT", 22, -20)
 
     confirmationMessage = confirmationDialog:CreateFontString(nil, "OVERLAY")
     SetFont(confirmationMessage, 11, true)
@@ -815,7 +820,6 @@ local function ShowDeleteBarConfirmation(barID, barName)
                         end
                         return false
                     end
-
                     selectedBarID = GetFallbackBarID(barID) or 1
                     EnsureSelectedBarVisible()
                     RefreshBarSelector()
@@ -900,7 +904,6 @@ local function ShowUnappliedChangesDialog()
                         end
                         return false
                     end
-
                     allowConfigClose = true
                     panel:Hide()
                     return true
@@ -913,12 +916,10 @@ end
 
 RequestCloseConfig = function()
     if not panel or not panel:IsShown() then return end
-
     if ns.HasConfigChanges and ns.HasConfigChanges() then
         ShowUnappliedChangesDialog()
         return
     end
-
     allowConfigClose = true
     panel:Hide()
 end
@@ -955,14 +956,17 @@ local function CreateHeader()
         panel, "General", 110, 28, 180, -48,
         function() SetTopLevelMode("General") end
     )
+
     actionBarsTab = widgets.CreateTabButton(
         panel, "Action Bars", 110, 28, 298, -48,
         function() SetTopLevelMode("Action Bars") end
     )
+
     profilesTab = widgets.CreateTabButton(
         panel, "Profiles", 110, 28, 416, -48,
         function() SetTopLevelMode("Profiles") end
     )
+
     actionBarsTab:SetSelected(true)
 end
 
@@ -1027,16 +1031,62 @@ local function CreateActionBarSettingsSection()
     end)
 
     gridSpacingBox:SetScript("OnEditFocusLost", CommitGridSpacing)
-
     gridSpacingBox:SetScript("OnEditFocusGained", function(self)
         self:HighlightText()
     end)
 
     RestoreGridSpacing()
 
+    gridOpacityLabel = widgets.CreateText(
+        actionBarSettingsSection, "Opacity (%)", 11, 842, -38
+    )
+
+    gridOpacityBox = CreateFrame(
+        "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
+    )
+    gridOpacityBox:SetSize(50, 20)
+    gridOpacityBox:SetPoint(
+        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 962, -34
+    )
+    gridOpacityBox:SetAutoFocus(false)
+    gridOpacityBox:SetMaxLetters(3)
+    gridOpacityBox:SetJustifyH("CENTER")
+    gridOpacityBox:SetTextColor(unpack(colors.text))
+
+    local function RestoreGridOpacity()
+        gridOpacityBox:SetText(
+            tostring(math.floor(ns.GetAlignmentGridOpacity() * 100 + 0.5))
+        )
+    end
+
+    local function CommitGridOpacity()
+        local percent = tonumber(gridOpacityBox:GetText())
+        if percent then ns.SetAlignmentGridOpacity(percent / 100) end
+        RestoreGridOpacity()
+    end
+
+    gridOpacityBox:SetScript("OnEnterPressed", function(self)
+        CommitGridOpacity()
+        self:ClearFocus()
+    end)
+
+    gridOpacityBox:SetScript("OnEscapePressed", function(self)
+        RestoreGridOpacity()
+        self:ClearFocus()
+    end)
+
+    gridOpacityBox:SetScript("OnEditFocusLost", CommitGridOpacity)
+    gridOpacityBox:SetScript("OnEditFocusGained", function(self)
+        self:HighlightText()
+    end)
+
+    RestoreGridOpacity()
+
     local visible = ns.IsAlignmentGridEnabled()
     gridSpacingBox:SetShown(visible)
     gridSpacingLabel:SetShown(visible)
+    gridOpacityBox:SetShown(visible)
+    gridOpacityLabel:SetShown(visible)
 end
 
 local function CreateBarSelector()
@@ -1061,6 +1111,7 @@ local function CreateBarSelector()
         elseif delta > 0 then
             barSelectorOffset = math.max(0, barSelectorOffset - 1)
         end
+
         RefreshBarSelector()
     end)
 
@@ -1101,6 +1152,7 @@ local function CreateBarManagementControls()
         barSelectorSection, "Rename Bar", 110, 30, 796, -38,
         function()
             renameBarID = selectedBarID
+
             if not renameDialog then
                 renameDialog = CreateFrame("Frame", nil, panel)
                 renameDialog:SetAllPoints(panel)
@@ -1128,10 +1180,9 @@ local function CreateBarManagementControls()
 
                 local function SaveName()
                     local settings = ns.db.bars[renameBarID]
-                    local value =
-                        nameControl.editBox:GetText():match("^%s*(.-)%s*$")
-
+                    local value = nameControl.editBox:GetText():match("^%s*(.-)%s*$")
                     if not settings or value == "" then return end
+
                     settings.name = value
                     ns.RefreshBarMover(renameBarID)
                     HideRenameDialog()
@@ -1140,16 +1191,9 @@ local function CreateBarManagementControls()
                 end
 
                 nameControl.editBox:SetScript("OnEnterPressed", SaveName)
-                nameControl.editBox:SetScript(
-                    "OnEscapePressed", HideRenameDialog
-                )
-
-                widgets.CreateButton(
-                    box, "Save", 110, 30, 170, -118, SaveName
-                )
-                widgets.CreateButton(
-                    box, "Cancel", 110, 30, 288, -118, HideRenameDialog
-                )
+                nameControl.editBox:SetScript("OnEscapePressed", HideRenameDialog)
+                widgets.CreateButton(box, "Save", 110, 30, 170, -118, SaveName)
+                widgets.CreateButton(box, "Cancel", 110, 30, 288, -118, HideRenameDialog)
             end
 
             nameControl:Refresh()
@@ -1164,7 +1208,6 @@ local function CreateBarManagementControls()
         function()
             local settings = GetSelectedSettings()
             if not settings or not settings.enabled then return end
-
             UnlockSelected(not IsSelectedUnlocked())
             RefreshControls()
         end
@@ -1218,8 +1261,8 @@ local function CreatePageHost()
     specialPage = ns.CreateSpecialConfigPage(pageHost, {
         RefreshConfig = RefreshControls,
     })
-    specialPage:Hide()
 
+    specialPage:Hide()
     layoutPage:Show()
     appearancePage:Hide()
     visibilityPage:Hide()
@@ -1231,7 +1274,6 @@ local function CreateGeneralHost()
     generalHost = CreateFrame("Frame", nil, panel)
     generalHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     generalHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
-
     generalPage = ns.CreateGeneralConfigPage(generalHost)
     generalPage:SetAllPoints(generalHost)
     generalHost:Hide()
@@ -1241,7 +1283,6 @@ local function CreateProfilesHost()
     profilesHost = CreateFrame("Frame", nil, panel)
     profilesHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     profilesHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
-
     profilesPage = ns.CreateProfilesConfigPage(profilesHost)
     profilesPage:SetAllPoints(profilesHost)
     profilesHost:Hide()
@@ -1343,6 +1384,7 @@ local function CreateConfigPanel()
         end
 
         allowConfigClose = false
+
         if not GetSelectedSettings() then
             selectedBarID = ns.GetBarIDs()[1] or 1
         end
@@ -1378,11 +1420,7 @@ end
 
 function ns.ToggleConfig()
     local config = CreateConfigPanel()
-    if config:IsShown() then
-        RequestCloseConfig()
-    else
-        config:Show()
-    end
+    if config:IsShown() then RequestCloseConfig() else config:Show() end
 end
 
 SLASH_MYTHINCACTIONBARS1 = "/miab"
@@ -1392,7 +1430,6 @@ SlashCmdList.MYTHINCACTIONBARS = ns.ToggleConfig
 function ns.SelectConfigBar(barID)
     local config = CreateConfigPanel()
     if not config:IsShown() then config:Show() end
-
     isMinimized = false
     config:SetHeight(WINDOW_HEIGHT)
     SetTopLevelMode("Action Bars")

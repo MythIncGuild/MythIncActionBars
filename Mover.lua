@@ -1,6 +1,6 @@
 local addonName, ns = ...
-
 ns.Movers = ns.Movers or {}
+
 local unlockedBars = {}
 local moveModeActive = false
 local placementReference
@@ -74,12 +74,12 @@ local function PlaceCenter(barID, x, y)
     if success and ns.RefreshConfig then
         ns.RefreshConfig()
     end
+
     return success
 end
 
 function ns.GetPositionReferenceBars(barID)
     local result = {}
-
     for otherID, settings in pairs(ns.db and ns.db.bars or {}) do
         local bar = GetBar(otherID)
         if type(otherID) == "number"
@@ -87,11 +87,11 @@ function ns.GetPositionReferenceBars(barID)
             and settings.enabled
             and bar
             and bar:IsShown()
-            and Rect(bar) then
+            and Rect(bar)
+        then
             result[#result + 1] = otherID
         end
     end
-
     table.sort(result)
     return result
 end
@@ -109,34 +109,10 @@ end
 
 function ns.SetBarSnapEnabled(barID, enabled)
     if InCombatLockdown() then return false, "combat" end
-
     local settings = GetSettings(barID)
     if not settings then return false, "missing" end
-
     settings.position = settings.position or {}
     settings.position.snapEnabled = enabled and true or false
-    return true
-end
-
-function ns.GetBarSnapDistance(barID)
-    local settings = GetSettings(barID)
-    local value = settings
-        and settings.position
-        and tonumber(settings.position.snapDistance)
-
-    return math.max(1, math.min(40, value or SNAP_DISTANCE))
-end
-
-function ns.SetBarSnapDistance(barID, value)
-    if InCombatLockdown() then return false, "combat" end
-
-    local settings = GetSettings(barID)
-    value = tonumber(value)
-    if not settings or not value then return false, "invalid" end
-
-    settings.position = settings.position or {}
-    settings.position.snapDistance =
-        math.max(1, math.min(40, math.floor(value + 0.5)))
     return true
 end
 
@@ -163,7 +139,8 @@ function ns.AlignBar(barID, referenceID, mode)
             or not other
             or not settings
             or not settings.enabled
-            or not reference:IsShown() then
+            or not reference:IsShown()
+        then
             return false, "reference"
         end
 
@@ -193,6 +170,25 @@ function ns.AlignBar(barID, referenceID, mode)
     end
 
     return PlaceCenter(barID, x, y)
+end
+
+function ns.GetBarSnapDistance(barID)
+    local settings = GetSettings(barID)
+    local value = settings and settings.position
+        and tonumber(settings.position.snapDistance)
+    return math.max(1, math.min(40, value or SNAP_DISTANCE))
+end
+
+function ns.SetBarSnapDistance(barID, value)
+    if InCombatLockdown() then return false, "combat" end
+    local settings = GetSettings(barID)
+    value = tonumber(value)
+    if not settings or not value then return false, "invalid" end
+    settings.position = settings.position or {}
+    settings.position.snapDistance = math.max(
+        1, math.min(40, math.floor(value + 0.5))
+    )
+    return true
 end
 
 local function SnapPosition(barID, x, y)
@@ -236,7 +232,8 @@ local function SnapPosition(barID, x, y)
         local other = Rect(GetBar(otherID))
 
         if cy + halfHeight >= other.bottom - SNAP_DISTANCE
-            and cy - halfHeight <= other.top + SNAP_DISTANCE then
+            and cy - halfHeight <= other.top + SNAP_DISTANCE
+        then
             ConsiderX(other.left + halfWidth)
             ConsiderX(other.right - halfWidth)
             ConsiderX(other.x)
@@ -245,7 +242,8 @@ local function SnapPosition(barID, x, y)
         end
 
         if cx + halfWidth >= other.left - SNAP_DISTANCE
-            and cx - halfWidth <= other.right + SNAP_DISTANCE then
+            and cx - halfWidth <= other.right + SNAP_DISTANCE
+        then
             ConsiderY(other.bottom + halfHeight)
             ConsiderY(other.top - halfHeight)
             ConsiderY(other.y)
@@ -279,8 +277,11 @@ local function AutoPlace(barID, referenceID)
         local left, right = x - width / 2, x + width / 2
         local bottom, top = y - height / 2, y + height / 2
 
-        if left < 0 or right > UIParent:GetWidth()
-            or bottom < 0 or top > UIParent:GetHeight() then
+        if left < 0
+            or right > UIParent:GetWidth()
+            or bottom < 0
+            or top > UIParent:GetHeight()
+        then
             return false
         end
 
@@ -289,10 +290,12 @@ local function AutoPlace(barID, referenceID)
             if left < other.right + BAR_GAP - 0.01
                 and right > other.left - BAR_GAP + 0.01
                 and bottom < other.top + BAR_GAP - 0.01
-                and top > other.bottom - BAR_GAP + 0.01 then
+                and top > other.bottom - BAR_GAP + 0.01
+            then
                 return false
             end
         end
+
         return true
     end
 
@@ -326,9 +329,11 @@ local function AutoPlace(barID, referenceID)
     end
 
     for y = UIParent:GetHeight() - height / 2,
-        height / 2, -(height + BAR_GAP) do
+        height / 2, -(height + BAR_GAP)
+    do
         for x = width / 2,
-            UIParent:GetWidth() - width / 2, width + BAR_GAP do
+            UIParent:GetWidth() - width / 2, width + BAR_GAP
+        do
             if Free(x, y) then
                 PlaceCenter(barID, x, y)
                 return
@@ -352,7 +357,6 @@ end
 
 local function CreateMover(barID)
     if ns.Movers[barID] then return ns.Movers[barID] end
-
     local bar = GetBar(barID)
     if not bar then return end
 
@@ -399,7 +403,9 @@ local function CreateMover(barID)
     local startX, startY, currentX, currentY
 
     mover:SetScript("OnDragStart", function()
-        if InCombatLockdown() or not ns.IsBarUnlocked(barID) then return end
+        if InCombatLockdown() or not ns.IsBarUnlocked(barID) then
+            return
+        end
 
         local settings = GetSettings(barID)
         if not settings or not settings.position then return end
@@ -461,8 +467,11 @@ function ns.RefreshBarMover(barID)
     mover:SetFrameLevel(bar:GetFrameLevel() + 50)
     mover.Label:SetText(settings.name or ("Bar " .. barID))
     mover:SetShown(
-        unlockedBars[barID] and settings.enabled and bar:IsShown()
-        and true or false
+        unlockedBars[barID]
+        and settings.enabled
+        and bar:IsShown()
+        and true
+        or false
     )
 end
 
@@ -495,16 +504,18 @@ end
 
 function ns.AreAllEnabledBarsUnlocked()
     if not ns.db or not ns.db.bars then return false end
-
     local found = false
+
     for id, settings in pairs(ns.db.bars) do
         if type(id) == "number"
             and type(settings) == "table"
-            and settings.enabled then
+            and settings.enabled
+        then
             found = true
             if not ns.IsBarUnlocked(id) then return false end
         end
     end
+
     return found
 end
 
@@ -535,8 +546,11 @@ end
 
 local function InheritUnlock(barID)
     local settings = GetSettings(barID)
-    if not InCombatLockdown() and moveModeActive
-        and settings and settings.enabled then
+    if not InCombatLockdown()
+        and moveModeActive
+        and settings
+        and settings.enabled
+    then
         ns.SetBarUnlocked(barID, true)
     end
 end
@@ -545,13 +559,9 @@ local function HasSavedBarPosition(barID, settings)
     local position = settings and settings.position
     if not position then return false end
     if position.hasBeenActivated then return true end
-
-    -- Preserve changed positions saved before activation tracking existed.
     if not ns.CreateDefaultBarSettings then return true end
 
-    local defaults = ns.CreateDefaultBarSettings(
-        barID, false, settings.source
-    )
+    local defaults = ns.CreateDefaultBarSettings(barID, false, settings.source)
     local original = defaults.position
 
     return position.point ~= original.point
@@ -565,7 +575,6 @@ ns.SetBarEnabled = function(barID, enabled)
     local settings = GetSettings(barID)
     local wasEnabled = settings and settings.enabled
     local previouslyPlaced = wasEnabled or HasSavedBarPosition(barID, settings)
-
     local result, reason = setBarEnabled(barID, enabled)
 
     if settings and wasEnabled then
@@ -574,10 +583,7 @@ ns.SetBarEnabled = function(barID, enabled)
     end
 
     if enabled and not wasEnabled and settings and settings.enabled then
-        if not previouslyPlaced then
-            AutoPlace(barID, placementReference)
-        end
-
+        if not previouslyPlaced then AutoPlace(barID, placementReference) end
         settings.position = settings.position or {}
         settings.position.hasBeenActivated = true
         InheritUnlock(barID)
@@ -593,13 +599,11 @@ ns.AddBar = function(...)
 
     if type(barID) == "number" then
         AutoPlace(barID, reference)
-
         local settings = GetSettings(barID)
         if settings then
             settings.position = settings.position or {}
             settings.position.hasBeenActivated = true
         end
-
         InheritUnlock(barID)
     end
 
@@ -614,7 +618,8 @@ events:SetScript("OnEvent", function()
     end
 end)
 
--- Visual guide only; does not capture mouse input or move bars.
+-- Visual alignment guide.
+-- Never captures mouse input or changes bar positions.
 local alignmentGrid = CreateFrame("Frame", nil, UIParent)
 alignmentGrid:SetAllPoints(UIParent)
 alignmentGrid:SetFrameStrata("BACKGROUND")
@@ -622,7 +627,7 @@ alignmentGrid:EnableMouse(false)
 alignmentGrid:Hide()
 
 local gridLines = {}
-local gridWidth, gridHeight, gridScale, gridSpacing = 0, 0, 0, 0
+local gridWidth, gridHeight, gridScale, gridSpacing, gridOpacity = 0, 0, 0, 0, 0
 
 function ns.IsAlignmentGridEnabled()
     return ns.db and ns.db.showAlignmentGrid == true
@@ -643,8 +648,21 @@ function ns.SetAlignmentGridSpacing(value)
     value = tonumber(value)
     if not value or not ns.db then return false end
 
-    ns.db.alignmentGridSpacing =
-        math.max(8, math.min(128, math.floor(value + 0.5)))
+    ns.db.alignmentGridSpacing = math.max(
+        8, math.min(128, math.floor(value + 0.5))
+    )
+    return true
+end
+
+function ns.GetAlignmentGridOpacity()
+    local value = ns.db and tonumber(ns.db.alignmentGridOpacity)
+    return math.max(0.05, math.min(1, value or 0.55))
+end
+
+function ns.SetAlignmentGridOpacity(value)
+    value = tonumber(value)
+    if not value or not ns.db then return false end
+    ns.db.alignmentGridOpacity = math.max(0.05, math.min(1, value))
     return true
 end
 
@@ -654,13 +672,17 @@ local function BuildAlignmentGrid()
     if not scale or scale <= 0 then return end
 
     local spacing = ns.GetAlignmentGridSpacing()
+    local opacity = ns.GetAlignmentGridOpacity()
+
     if width == gridWidth and height == gridHeight
-        and scale == gridScale and spacing == gridSpacing then
+        and scale == gridScale and spacing == gridSpacing
+        and opacity == gridOpacity
+    then
         return
     end
 
-    gridWidth, gridHeight, gridScale, gridSpacing =
-        width, height, scale, spacing
+    gridWidth, gridHeight, gridScale, gridSpacing, gridOpacity =
+        width, height, scale, spacing, opacity
 
     for _, line in ipairs(gridLines) do line:Hide() end
 
@@ -679,28 +701,34 @@ local function BuildAlignmentGrid()
             gridLines[used] = texture
         end
 
-        texture:ClearAllPoints()
+        local isCenter = pixel == (vertical and centerX or centerY)
+        local thickness = (isCenter and 2 or 1) / scale
 
+        texture:ClearAllPoints()
         if vertical then
             texture:SetPoint(
                 "BOTTOMLEFT", alignmentGrid, "BOTTOMLEFT", pixel / scale, 0
             )
-            texture:SetSize(1 / scale, height)
+            texture:SetSize(thickness, height)
         else
             texture:SetPoint(
                 "BOTTOMLEFT", alignmentGrid, "BOTTOMLEFT", 0, pixel / scale
             )
-            texture:SetSize(width, 1 / scale)
+            texture:SetSize(width, thickness)
         end
 
-        texture:SetColorTexture(0.65, 0.85, 0.90, 0.55)
+        if isCenter then
+            texture:SetColorTexture(0.35, 0.85, 0.80, opacity)
+        else
+            texture:SetColorTexture(0.65, 0.85, 0.90, opacity)
+        end
+
         texture:Show()
     end
 
     for pixel = centerX % spacing, pixelWidth - 1, spacing do
         Line(true, pixel)
     end
-
     for pixel = centerY % spacing, pixelHeight - 1, spacing do
         Line(false, pixel)
     end
@@ -718,15 +746,16 @@ local function UpdateAlignmentGrid()
     end
 
     local unlocked = ns.GetUnlockedBarCount() > 0
-
     for _, target in pairs(ns.SpecialConfigTargets or {}) do
         if target.GetSettings().enabled and target.IsUnlocked() then
             unlocked = true
         end
     end
 
-    local visible = ns.IsAlignmentGridEnabled()
-        and unlocked and not InCombatLockdown()
+    local visible =
+        ns.IsAlignmentGridEnabled()
+        and unlocked
+        and not InCombatLockdown()
 
     if visible then BuildAlignmentGrid() end
     alignmentGrid:SetShown(visible and true or false)
