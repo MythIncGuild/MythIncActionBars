@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 local TEXT_POSITIONS = {
@@ -31,7 +32,9 @@ local TEXT_DEFAULTS = {
 
 local function Number(value, fallback)
     value = tonumber(value)
-    if not value or value ~= value then return fallback end
+    if not value or value ~= value then
+        return fallback
+    end
     return value
 end
 
@@ -39,15 +42,24 @@ local function EnsureAppearance(settings)
     settings.appearance = settings.appearance or {}
     local appearance = settings.appearance
 
-    if appearance.iconInset ~= nil and appearance.iconZoom == nil then
+    if appearance.iconInset ~= nil
+        and appearance.iconZoom == nil
+    then
         appearance.iconZoom = 0
     end
+
     appearance.iconInset = nil
 
     local defaults = {
         iconZoom = 0,
         showBorder = true,
         emptyOpacity = 0.85,
+
+        -- Empty-button visibility.
+        -- Existing profiles default to their original behaviour.
+        showEmptyButtons = true,
+        showEmptyWhileUnlocked = true,
+
         showCooldown = true,
         showCooldownText = true,
         showRecharge = true,
@@ -83,6 +95,7 @@ local function EnsureAppearance(settings)
 
         appearance[prefix .. "OffsetX"] =
             Number(appearance[prefix .. "OffsetX"], 0)
+
         appearance[prefix .. "OffsetY"] =
             Number(appearance[prefix .. "OffsetY"], 0)
 
@@ -95,7 +108,9 @@ local function EnsureAppearance(settings)
         if color.a == nil then color.a = 1 end
     end
 
-    if not VALID_FLYOUT_DIRECTIONS[appearance.flyoutDirection] then
+    if not VALID_FLYOUT_DIRECTIONS[
+        appearance.flyoutDirection
+    ] then
         appearance.flyoutDirection = "UP"
     end
 
@@ -106,15 +121,25 @@ local function ApplyIconZoom(button, appearance)
     if not button.icon then return end
 
     local zoom = math.max(
-        0, math.min(30, Number(appearance.iconZoom, 0))
+        0,
+        math.min(30, Number(appearance.iconZoom, 0))
     )
+
     local crop = zoom / 200
-    button.icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
+
+    button.icon:SetTexCoord(
+        crop,
+        1 - crop,
+        crop,
+        1 - crop
+    )
 end
 
 local function ApplyBorder(button, appearance)
     if button.Border then
-        button.Border:SetShown(appearance.showBorder ~= false)
+        button.Border:SetShown(
+            appearance.showBorder ~= false
+        )
     end
 end
 
@@ -127,21 +152,33 @@ local function ApplyBackground(button, appearance)
 end
 
 local function StyleText(
-    text, button, appearance, prefix, size, position
+    text,
+    button,
+    appearance,
+    prefix,
+    size,
+    position
 )
     if not text then return end
 
-    local font = ns.Media and ns.Media.font or STANDARD_TEXT_FONT
+    local font =
+        ns.Media and ns.Media.font or STANDARD_TEXT_FONT
+
     text:SetFont(
         font,
         Number(appearance[prefix .. "TextSize"], size),
         "OUTLINE"
     )
 
-    local point = appearance[prefix .. "Position"] or position
-    if not TEXT_POSITIONS[point] then point = position end
+    local point =
+        appearance[prefix .. "Position"] or position
+
+    if not TEXT_POSITIONS[point] then
+        point = position
+    end
 
     local inset = prefix == "keybind" and 3 or 2
+
     local left = point:find("LEFT", 1, true) ~= nil
     local right = point:find("RIGHT", 1, true) ~= nil
     local top = point:find("TOP", 1, true) ~= nil
@@ -150,14 +187,27 @@ local function StyleText(
     local x = left and inset or (right and -inset or 0)
     local y = top and -inset or (bottom and inset or 0)
 
-    x = x + Number(appearance[prefix .. "OffsetX"], 0)
-    y = y + Number(appearance[prefix .. "OffsetY"], 0)
+    x = x + Number(
+        appearance[prefix .. "OffsetX"],
+        0
+    )
+
+    y = y + Number(
+        appearance[prefix .. "OffsetY"],
+        0
+    )
 
     text:ClearAllPoints()
     text:SetPoint(point, button, point, x, y)
-    text:SetJustifyH(left and "LEFT" or (right and "RIGHT" or "CENTER"))
 
-    local color = appearance[prefix .. "Color"] or {}
+    text:SetJustifyH(
+        left and "LEFT"
+        or (right and "RIGHT" or "CENTER")
+    )
+
+    local color =
+        appearance[prefix .. "Color"] or {}
+
     text:SetTextColor(
         color.r or 1,
         color.g or 1,
@@ -171,53 +221,88 @@ local function ApplyCooldown(button, appearance)
         button.chargeCooldown:SetDrawEdge(
             appearance.showRecharge ~= false
         )
+
         button.chargeCooldown:SetHideCountdownNumbers(
             appearance.showRechargeText ~= true
         )
 
         StyleText(
             button.chargeCooldown:GetCountdownFontString(),
-            button, appearance, "recharge", 12, "TOPLEFT"
+            button,
+            appearance,
+            "recharge",
+            12,
+            "TOPLEFT"
         )
     end
 
     if not button.cooldown then return end
 
-    button.cooldown:SetDrawSwipe(appearance.showCooldown ~= false)
+    button.cooldown:SetDrawSwipe(
+        appearance.showCooldown ~= false
+    )
+
     button.cooldown:SetHideCountdownNumbers(
         appearance.showCooldownText == false
     )
 
     StyleText(
         button.cooldown:GetCountdownFontString(),
-        button, appearance, "cooldown", 16, "CENTER"
+        button,
+        appearance,
+        "cooldown",
+        16,
+        "CENTER"
     )
 end
 
 local function ApplyCountText(button, appearance)
     if not button.Count then return end
 
-    button.Count:SetShown(appearance.showCount ~= false)
+    button.Count:SetShown(
+        appearance.showCount ~= false
+    )
+
     StyleText(
-        button.Count, button, appearance, "count", 12, "BOTTOMRIGHT"
+        button.Count,
+        button,
+        appearance,
+        "count",
+        12,
+        "BOTTOMRIGHT"
     )
 end
 
-function ns.ApplyButtonFeedbackAppearance(button, appearance)
+function ns.ApplyButtonFeedbackAppearance(
+    button,
+    appearance
+)
     button.MIABFeedbackAppearance = appearance
 
     ApplyCooldown(button, appearance)
     ApplyCountText(button, appearance)
 
     if button.MacroName then
-        button.MacroName:SetShown(appearance.showMacroName ~= false)
+        button.MacroName:SetShown(
+            appearance.showMacroName ~= false
+        )
+
         StyleText(
-            button.MacroName, button, appearance, "macro", 10, "BOTTOM"
+            button.MacroName,
+            button,
+            appearance,
+            "macro",
+            10,
+            "BOTTOM"
         )
     end
 
     local opacity = math.max(
-        0, math.min(1, Number(appearance.procOpacity, 1))
+        0,
+        math.min(
+            1,
+            Number(appearance.procOpacity, 1)
+        )
     )
 
     if button.SpellActivationAlert then
@@ -238,14 +323,24 @@ local function ApplyKeybindText(button, appearance)
     if not hotKey then return end
 
     hotKey:SetDrawLayer("OVERLAY", 7)
+
     StyleText(
-        hotKey, button, appearance, "keybind", 12, "TOPRIGHT"
+        hotKey,
+        button,
+        appearance,
+        "keybind",
+        12,
+        "TOPRIGHT"
     )
-    hotKey:SetShown(appearance.showKeybind ~= false)
+
+    hotKey:SetShown(
+        appearance.showKeybind ~= false
+    )
 end
 
 local function ApplyFlyoutDirection(button, appearance)
-    local direction = appearance.flyoutDirection or "UP"
+    local direction =
+        appearance.flyoutDirection or "UP"
 
     if not VALID_FLYOUT_DIRECTIONS[direction] then
         direction = "UP"
@@ -258,8 +353,13 @@ local function ApplyFlyoutDirection(button, appearance)
 
     pendingFlyoutButtons[button] = nil
 
-    if button:GetAttribute("flyoutDirection") ~= direction then
-        button:SetAttribute("flyoutDirection", direction)
+    if button:GetAttribute("flyoutDirection")
+        ~= direction
+    then
+        button:SetAttribute(
+            "flyoutDirection",
+            direction
+        )
     end
 
     if button.SetPopupDirection then
@@ -277,11 +377,18 @@ flyoutEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 flyoutEvents:SetScript("OnEvent", function()
     if InCombatLockdown() then return end
 
-    for button, direction in pairs(pendingFlyoutButtons) do
+    for button, direction in pairs(
+        pendingFlyoutButtons
+    ) do
         pendingFlyoutButtons[button] = nil
 
-        if button:GetAttribute("flyoutDirection") ~= direction then
-            button:SetAttribute("flyoutDirection", direction)
+        if button:GetAttribute("flyoutDirection")
+            ~= direction
+        then
+            button:SetAttribute(
+                "flyoutDirection",
+                direction
+            )
         end
 
         if button.SetPopupDirection then
@@ -294,8 +401,287 @@ flyoutEvents:SetScript("OnEvent", function()
     end
 end)
 
+-- ------------------------------------------------------------
+-- Empty-button visibility
+-- ------------------------------------------------------------
+--
+-- Button frames remain laid out in their normal positions.
+-- Only their visual alpha and mouse interaction are changed.
+--
+-- Secure action attributes, action paging and bar visibility
+-- drivers are left untouched.
+--
+-- Changes to protected button interaction are never attempted
+-- while in combat.
+--
+-- Blizzard-backed buttons are considered occupied if an action
+-- exists on any page that can become active for that bar.
+-- This avoids making alternate-page actions inaccessible when
+-- paging changes during combat.
+-- ------------------------------------------------------------
+
+local BLIZZARD_BASE_PAGES = {
+    [1] = 1,
+    [2] = 6,
+    [3] = 5,
+    [4] = 4,
+    [5] = 3,
+    [6] = 13,
+    [7] = 14,
+    [8] = 15,
+}
+
+local emptyButtonState =
+    setmetatable({}, { __mode = "k" })
+
+local function HasBlizzardAction(
+    settings,
+    barID,
+    buttonID,
+    button
+)
+    if not C_ActionBar
+        or not C_ActionBar.HasAction
+    then
+        return true
+    end
+
+    local checked = {}
+
+    local function HasPage(page)
+        page = tonumber(page)
+
+        if not page then
+            return false
+        end
+
+        page = math.floor(page)
+
+        if page < 1 or page > 15
+            or checked[page]
+        then
+            return false
+        end
+
+        checked[page] = true
+
+        local slot = (page - 1) * 12 + buttonID
+
+        return C_ActionBar.HasAction(slot) == true
+    end
+
+    local basePage = BLIZZARD_BASE_PAGES[barID]
+
+    if not basePage then
+        return true
+    end
+
+    if HasPage(basePage) then
+        return true
+    end
+
+    -- Retain positions occupied by an enabled modifier page.
+    local pages = settings.actionPages or {}
+
+    for _, modifier in ipairs({
+        "shift",
+        "ctrl",
+        "alt",
+    }) do
+        local definition = pages[modifier]
+
+        if definition
+            and definition.enabled
+            and HasPage(definition.page)
+        then
+            return true
+        end
+    end
+
+    -- Action Bar 1 also uses the standard action pages and
+    -- bonus pages for shapeshifting and similar states.
+    if barID == 1 then
+        for page = 1, 10 do
+            if HasPage(page) then
+                return true
+            end
+        end
+    end
+
+    -- Account for an effective action slot, if it differs.
+    if button and button.GetCurrentActionSlot then
+        local slot = button.GetCurrentActionSlot()
+
+        if type(slot) == "number"
+            and C_ActionBar.HasAction(slot) == true
+        then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function HasCustomAssignment(settings, buttonID)
+    local assignments = settings.assignments
+
+    -- CustomActionButton.lua maintains this active alias.
+    -- It is refreshed when the player changes specialization.
+    return assignments
+        and assignments[buttonID] ~= nil
+        or false
+end
+
+local function ShouldShowEmptyButton(
+    settings,
+    barID,
+    buttonID,
+    button
+)
+    local appearance = EnsureAppearance(settings)
+
+    if appearance.showEmptyButtons ~= false then
+        return true
+    end
+
+    if appearance.showEmptyWhileUnlocked ~= false
+        and ns.IsBarUnlocked
+        and ns.IsBarUnlocked(barID)
+    then
+        return true
+    end
+
+    if settings.source == "custom" then
+        return HasCustomAssignment(
+            settings,
+            buttonID
+        )
+    end
+
+    return HasBlizzardAction(
+        settings,
+        barID,
+        buttonID,
+        button
+    )
+end
+
+function ns.RefreshEmptyButtonVisibility(barID)
+    if InCombatLockdown() then
+        return false
+    end
+
+    if not ns.db or not ns.db.bars
+        or not ns.Bars
+    then
+        return false
+    end
+
+    local settings = ns.db.bars[barID]
+    local bar = ns.Bars[barID]
+
+    if not settings or not bar
+        or not bar.buttons
+    then
+        return false
+    end
+
+    local buttonCount =
+        tonumber(settings.buttonCount) or 12
+
+    for buttonID, button in ipairs(bar.buttons) do
+        local show = true
+
+        if settings.enabled
+            and buttonID <= buttonCount
+        then
+            show = ShouldShowEmptyButton(
+                settings,
+                barID,
+                buttonID,
+                button
+            )
+        end
+
+        local previous = emptyButtonState[button]
+
+        if previous ~= show then
+            emptyButtonState[button] = show
+
+            -- Keeping the secure frame alive also ensures that
+            -- normal action-page and keybinding registration
+            -- remains intact.
+            button:SetAlpha(show and 1 or 0)
+
+            -- Hidden empty slots should not intercept clicks.
+            -- This is only changed out of combat.
+            button:EnableMouse(show)
+        end
+    end
+
+    return true
+end
+
+function ns.RefreshAllEmptyButtonVisibility()
+    if InCombatLockdown() then
+        return false
+    end
+
+    if not ns.Bars then
+        return false
+    end
+
+    for barID in pairs(ns.Bars) do
+        ns.RefreshEmptyButtonVisibility(barID)
+    end
+
+    return true
+end
+
+local emptyButtonEvents = CreateFrame("Frame")
+
+for _, event in ipairs({
+    "PLAYER_ENTERING_WORLD",
+    "PLAYER_REGEN_ENABLED",
+    "PLAYER_SPECIALIZATION_CHANGED",
+    "ACTIONBAR_SLOT_CHANGED",
+    "UPDATE_MACROS",
+    "ACTIONBAR_PAGE_CHANGED",
+}) do
+    emptyButtonEvents:RegisterEvent(event)
+end
+
+emptyButtonEvents:SetScript(
+    "OnEvent",
+    function(_, event, unit)
+        if event == "PLAYER_SPECIALIZATION_CHANGED"
+            and unit ~= "player"
+        then
+            return
+        end
+
+        if InCombatLockdown() then
+            return
+        end
+
+        -- Defer one frame so Blizzard action updates and custom
+        -- specialization assignments can finish first.
+        C_Timer.After(0, function()
+            if not InCombatLockdown() then
+                ns.RefreshAllEmptyButtonVisibility()
+            end
+        end)
+    end
+)
+
+-- ------------------------------------------------------------
+-- Standard button appearance
+-- ------------------------------------------------------------
+
 function ns.ApplyButtonAppearance(button, settings)
-    if not button or not settings then return end
+    if not button or not settings then
+        return
+    end
 
     local appearance = EnsureAppearance(settings)
     button.MIABFeedbackAppearance = appearance
@@ -303,12 +689,22 @@ function ns.ApplyButtonAppearance(button, settings)
     ApplyIconZoom(button, appearance)
     ApplyBorder(button, appearance)
     ApplyBackground(button, appearance)
-    ns.ApplyButtonFeedbackAppearance(button, appearance)
+
+    ns.ApplyButtonFeedbackAppearance(
+        button,
+        appearance
+    )
+
     ApplyKeybindText(button, appearance)
     ApplyFlyoutDirection(button, appearance)
 
-    for _, child in ipairs(button.MIABFlyoutChildren or {}) do
-        ns.ApplyButtonFeedbackAppearance(child, appearance)
+    for _, child in ipairs(
+        button.MIABFlyoutChildren or {}
+    ) do
+        ns.ApplyButtonFeedbackAppearance(
+            child,
+            appearance
+        )
     end
 
     if button.RefreshVisualState then
@@ -317,28 +713,51 @@ function ns.ApplyButtonAppearance(button, settings)
 end
 
 function ns.ApplyBarAppearance(barID)
-    if not ns.db or not ns.db.bars then return end
+    if not ns.db or not ns.db.bars then
+        return
+    end
 
     local settings = ns.db.bars[barID]
     local bar = ns.Bars and ns.Bars[barID]
-    if not settings or not bar then return end
+
+    if not settings or not bar then
+        return
+    end
 
     EnsureAppearance(settings)
     ns.RefreshBarFade(barID, true)
 
     for _, button in ipairs(bar.buttons) do
-        ns.ApplyButtonAppearance(button, settings)
+        ns.ApplyButtonAppearance(
+            button,
+            settings
+        )
     end
+
+    ns.RefreshEmptyButtonVisibility(barID)
 end
 
 function ns.GetBarAppearance(barID)
-    local settings = ns.db and ns.db.bars and ns.db.bars[barID]
-    if not settings then return nil end
+    local settings =
+        ns.db and ns.db.bars
+        and ns.db.bars[barID]
+
+    if not settings then
+        return nil
+    end
+
     return EnsureAppearance(settings)
 end
 
+-- ------------------------------------------------------------
+-- Bar fading
+-- ------------------------------------------------------------
+--
 -- Secure visibility decides whether a bar is shown.
 -- Fading changes opacity without changing its visibility driver.
+-- Empty-button alpha remains independent of the bar's fade.
+-- ------------------------------------------------------------
+
 local fadeStates = setmetatable({}, { __mode = "k" })
 local ownedFadeFrames = setmetatable({}, { __mode = "k" })
 
@@ -376,28 +795,48 @@ local SPECIAL_FADE_FRAMES = {
 
 local function ClampOpacity(value, fallback)
     value = tonumber(value)
-    if not value or value ~= value then return fallback end
-    return math.max(0, math.min(1, value))
+
+    if not value or value ~= value then
+        return fallback
+    end
+
+    return math.max(
+        0,
+        math.min(1, value)
+    )
 end
 
 function ns.GetBarFadeSettings(barID)
     local target = ns.SpecialConfigTargets
         and ns.SpecialConfigTargets[barID]
-    local settings = target and target.GetSettings()
-        or (ns.db and ns.db.bars and ns.db.bars[barID])
 
-    if not settings then return end
+    local settings = target and target.GetSettings()
+        or (
+            ns.db and ns.db.bars
+            and ns.db.bars[barID]
+        )
+
+    if not settings then
+        return
+    end
 
     settings.visibility = settings.visibility or {}
+
     local visibility = settings.visibility
 
-    visibility.opacity = ClampOpacity(visibility.opacity, 1)
+    visibility.opacity =
+        ClampOpacity(visibility.opacity, 1)
+
     visibility.fadedOpacity = math.min(
         visibility.opacity,
         ClampOpacity(visibility.fadedOpacity, 0.2)
     )
-    visibility.fadeOnMouseover = visibility.fadeOnMouseover == true
-    visibility.showFullyInCombat = visibility.showFullyInCombat == true
+
+    visibility.fadeOnMouseover =
+        visibility.fadeOnMouseover == true
+
+    visibility.showFullyInCombat =
+        visibility.showFullyInCombat == true
 
     return visibility
 end
@@ -413,7 +852,9 @@ local function FadeFrames(barID)
     local frames = {}
 
     for _, name in ipairs(names) do
-        if _G[name] then frames[#frames + 1] = _G[name] end
+        if _G[name] then
+            frames[#frames + 1] = _G[name]
+        end
     end
 
     return frames
@@ -422,34 +863,54 @@ end
 local function IsUnlocked(barID)
     local target = ns.SpecialConfigTargets
         and ns.SpecialConfigTargets[barID]
-    if target then return target.IsUnlocked() end
-    return ns.IsBarUnlocked and ns.IsBarUnlocked(barID)
+
+    if target then
+        return target.IsUnlocked()
+    end
+
+    return ns.IsBarUnlocked
+        and ns.IsBarUnlocked(barID)
 end
 
 local function Hovered(frames)
     for _, frame in ipairs(frames) do
-        if frame:IsShown() and frame:IsMouseOver() then
+        if frame:IsShown()
+            and frame:IsMouseOver()
+        then
             return true
         end
     end
+
     return false
 end
 
 local function EditingBars()
-    return (ns.IsKeybindModeActive and ns.IsKeybindModeActive())
-        or DRAG_CURSOR_TYPES[GetCursorInfo()] == true
+    return (
+        ns.IsKeybindModeActive
+        and ns.IsKeybindModeActive()
+    )
+    or DRAG_CURSOR_TYPES[GetCursorInfo()] == true
 end
 
-local function TargetOpacity(barID, frames, visibility, editing)
+local function TargetOpacity(
+    barID,
+    frames,
+    visibility,
+    editing
+)
     if editing or IsUnlocked(barID) then
         return 1, true
     end
 
-    if visibility.showFullyInCombat and InCombatLockdown() then
+    if visibility.showFullyInCombat
+        and InCombatLockdown()
+    then
         return 1, true
     end
 
-    if visibility.fadeOnMouseover and not Hovered(frames) then
+    if visibility.fadeOnMouseover
+        and not Hovered(frames)
+    then
         return visibility.fadedOpacity, false
     end
 
@@ -457,16 +918,28 @@ local function TargetOpacity(barID, frames, visibility, editing)
 end
 
 local function UpdateFade(
-    barID, bar, frames, visibility, editing, elapsed, immediate
+    barID,
+    bar,
+    frames,
+    visibility,
+    editing,
+    elapsed,
+    immediate
 )
     local target, forceFull = TargetOpacity(
-        barID, frames, visibility, editing
+        barID,
+        frames,
+        visibility,
+        editing
     )
 
     local state = fadeStates[bar]
 
     if not state then
-        state = { alpha = bar:GetAlpha() }
+        state = {
+            alpha = bar:GetAlpha()
+        }
+
         fadeStates[bar] = state
     end
 
@@ -476,9 +949,15 @@ local function UpdateFade(
         local step = elapsed / 0.15
 
         if state.alpha < target then
-            state.alpha = math.min(target, state.alpha + step)
+            state.alpha = math.min(
+                target,
+                state.alpha + step
+            )
         elseif state.alpha > target then
-            state.alpha = math.max(target, state.alpha - step)
+            state.alpha = math.max(
+                target,
+                state.alpha - step
+            )
         end
     end
 
@@ -488,40 +967,64 @@ local function UpdateFade(
 end
 
 function ns.RefreshBarFade(barID, immediate)
-    local visibility = ns.GetBarFadeSettings(barID)
-    if not visibility then return end
+    local visibility =
+        ns.GetBarFadeSettings(barID)
+
+    if not visibility then
+        return
+    end
 
     local target = ns.SpecialConfigTargets
         and ns.SpecialConfigTargets[barID]
-    if target and not target.GetSettings().enabled then return end
+
+    if target
+        and not target.GetSettings().enabled
+    then
+        return
+    end
 
     local frames = FadeFrames(barID)
     local editing = EditingBars()
 
     for _, bar in ipairs(frames) do
-        if target and ownedFadeFrames[bar] == nil then
+        if target
+            and ownedFadeFrames[bar] == nil
+        then
             ownedFadeFrames[bar] = bar:GetAlpha()
         end
 
         UpdateFade(
-            barID, bar, frames, visibility,
-            editing, 0, immediate ~= false
+            barID,
+            bar,
+            frames,
+            visibility,
+            editing,
+            0,
+            immediate ~= false
         )
     end
 end
 
 function ns.SetBarFadeOption(barID, option, value)
-    local visibility = ns.GetBarFadeSettings(barID)
-    if not visibility then return false, "missing" end
+    local visibility =
+        ns.GetBarFadeSettings(barID)
 
-    if option == "opacity" or option == "fadedOpacity" then
+    if not visibility then
+        return false, "missing"
+    end
+
+    if option == "opacity"
+        or option == "fadedOpacity"
+    then
         value = tonumber(value)
 
         if not value or value ~= value then
             return false, "invalid"
         end
 
-        visibility[option] = ClampOpacity(value, 1)
+        visibility[option] =
+            ClampOpacity(value, 1)
+
     elseif option == "fadeOnMouseover"
         or option == "showFullyInCombat"
     then
@@ -538,26 +1041,43 @@ end
 
 local fadeWatcher = CreateFrame("Frame")
 local fadeElapsed = 0
+local emptyElapsed = 0
 
 fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     fadeElapsed = fadeElapsed + elapsed
-    if fadeElapsed < 0.05 then return end
+    emptyElapsed = emptyElapsed + elapsed
+
+    if fadeElapsed < 0.05 then
+        return
+    end
 
     local step = fadeElapsed
     fadeElapsed = 0
 
-    if not ns.db or not ns.db.bars then return end
+    if not ns.db or not ns.db.bars then
+        return
+    end
 
     local editing = EditingBars()
 
     for barID, bar in pairs(ns.Bars or {}) do
         local settings = ns.db.bars[barID]
 
-        if settings and settings.enabled and bar:IsShown() then
-            local visibility = ns.GetBarFadeSettings(barID)
+        if settings
+            and settings.enabled
+            and bar:IsShown()
+        then
+            local visibility =
+                ns.GetBarFadeSettings(barID)
 
             UpdateFade(
-                barID, bar, { bar }, visibility, editing, step, false
+                barID,
+                bar,
+                { bar },
+                visibility,
+                editing,
+                step,
+                false
             )
         end
     end
@@ -567,22 +1087,31 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     for barID in pairs(SPECIAL_FADE_FRAMES) do
         local target = ns.SpecialConfigTargets
             and ns.SpecialConfigTargets[barID]
-        local settings = target and target.GetSettings()
+
+        local settings =
+            target and target.GetSettings()
 
         if settings and settings.enabled then
             local frames = FadeFrames(barID)
-            local visibility = ns.GetBarFadeSettings(barID)
+            local visibility =
+                ns.GetBarFadeSettings(barID)
 
             for _, bar in ipairs(frames) do
                 active[bar] = true
 
                 if ownedFadeFrames[bar] == nil then
-                    ownedFadeFrames[bar] = bar:GetAlpha()
+                    ownedFadeFrames[bar] =
+                        bar:GetAlpha()
                 end
 
                 UpdateFade(
-                    barID, bar, frames, visibility,
-                    editing, step, false
+                    barID,
+                    bar,
+                    frames,
+                    visibility,
+                    editing,
+                    step,
+                    false
                 )
             end
         end
@@ -593,6 +1122,19 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
             bar:SetAlpha(alpha)
             ownedFadeFrames[bar] = nil
             fadeStates[bar] = nil
+        end
+    end
+
+    -- Reconcile unlocked states, new custom assignments,
+    -- and settings changes without modifying protected
+    -- button interaction during combat.
+    --
+    -- This is deliberately less frequent than fading.
+    if emptyElapsed >= 0.20 then
+        emptyElapsed = 0
+
+        if not InCombatLockdown() then
+            ns.RefreshAllEmptyButtonVisibility()
         end
     end
 end)

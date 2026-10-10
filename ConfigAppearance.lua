@@ -23,26 +23,61 @@ function ns.CreateAppearanceConfigPage(parent, context)
     local dragging = false
     local dragOffset = 0
 
+    -- Scrollbar
+
     local scrollTrack = CreateFrame(
-        "Frame", nil, page, "BackdropTemplate"
+        "Frame",
+        nil,
+        page,
+        "BackdropTemplate"
     )
+
     scrollTrack:SetWidth(4)
-    scrollTrack:SetPoint("TOPRIGHT", page, "TOPRIGHT", -5, -4)
-    scrollTrack:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -5, 4)
+    scrollTrack:SetPoint(
+        "TOPRIGHT",
+        page,
+        "TOPRIGHT",
+        -5,
+        -4
+    )
+
+    scrollTrack:SetPoint(
+        "BOTTOMRIGHT",
+        page,
+        "BOTTOMRIGHT",
+        -5,
+        4
+    )
+
     scrollTrack:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
     })
-    scrollTrack:SetBackdropColor(0.08, 0.09, 0.09, 0.9)
+
+    scrollTrack:SetBackdropColor(
+        0.08,
+        0.09,
+        0.09,
+        0.9
+    )
+
     scrollTrack:EnableMouse(true)
 
     local scrollThumb = CreateFrame(
-        "Frame", nil, scrollTrack, "BackdropTemplate"
+        "Frame",
+        nil,
+        scrollTrack,
+        "BackdropTemplate"
     )
+
     scrollThumb:SetWidth(8)
     scrollThumb:SetBackdrop({
         bgFile = "Interface\\Buttons\\WHITE8x8",
     })
-    scrollThumb:SetBackdropColor(unpack(colors.accent))
+
+    scrollThumb:SetBackdropColor(
+        unpack(colors.accent)
+    )
+
     scrollThumb:EnableMouse(true)
     scrollThumb:RegisterForDrag("LeftButton")
 
@@ -98,7 +133,10 @@ function ns.CreateAppearanceConfigPage(parent, context)
     local function ApplyScroll()
         scrollOffset = math.max(
             0,
-            math.min(scrollOffset, GetMaxScroll())
+            math.min(
+                scrollOffset,
+                GetMaxScroll()
+            )
         )
 
         content:ClearAllPoints()
@@ -150,74 +188,115 @@ function ns.CreateAppearanceConfigPage(parent, context)
             travel > 0 and offset / travel or 0
 
         scrollOffset = GetMaxScroll() * ratio
+
         ApplyScroll()
     end
 
     page:EnableMouseWheel(true)
+
     page:SetScript("OnMouseWheel", function(_, delta)
         scrollOffset = scrollOffset - delta * scrollStep
         ApplyScroll()
     end)
 
-    scrollTrack:SetScript("OnMouseDown", function(_, button)
-        if button ~= "LeftButton" then
-            return
+    scrollTrack:SetScript(
+        "OnMouseDown",
+        function(_, button)
+            if button ~= "LeftButton" then
+                return
+            end
+
+            local _, cursorY = GetCursorPosition()
+            SetScrollFromThumbPosition(
+                cursorY,
+                false
+            )
         end
+    )
 
-        local _, cursorY = GetCursorPosition()
-        SetScrollFromThumbPosition(cursorY, false)
-    end)
+    scrollThumb:SetScript(
+        "OnDragStart",
+        function()
+            dragging = true
 
-    scrollThumb:SetScript("OnDragStart", function()
-        dragging = true
+            local _, cursorY = GetCursorPosition()
 
-        local _, cursorY = GetCursorPosition()
-        local cursor =
-            cursorY / scrollTrack:GetEffectiveScale()
+            local cursor =
+                cursorY / scrollTrack:GetEffectiveScale()
 
-        local thumbTop = scrollThumb:GetTop()
+            local thumbTop = scrollThumb:GetTop()
 
-        dragOffset =
-            thumbTop and thumbTop - cursor or 0
-    end)
-
-    scrollThumb:SetScript("OnDragStop", function()
-        dragging = false
-    end)
-
-    scrollThumb:SetScript("OnUpdate", function()
-        if not dragging then
-            return
+            dragOffset =
+                thumbTop and thumbTop - cursor or 0
         end
+    )
 
-        local _, cursorY = GetCursorPosition()
-        SetScrollFromThumbPosition(cursorY, true)
-    end)
+    scrollThumb:SetScript(
+        "OnDragStop",
+        function()
+            dragging = false
+        end
+    )
 
-    scrollThumb:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(
-            unpack(colors.hoverBorder or colors.accent)
-        )
-    end)
+    scrollThumb:SetScript(
+        "OnUpdate",
+        function()
+            if not dragging then
+                return
+            end
 
-    scrollThumb:SetScript("OnLeave", function(self)
-        self:SetBackdropColor(unpack(colors.accent))
-    end)
+            local _, cursorY = GetCursorPosition()
+
+            SetScrollFromThumbPosition(
+                cursorY,
+                true
+            )
+        end
+    )
+
+    scrollThumb:SetScript(
+        "OnEnter",
+        function(self)
+            self:SetBackdropColor(
+                unpack(
+                    colors.hoverBorder
+                    or colors.accent
+                )
+            )
+        end
+    )
+
+    scrollThumb:SetScript(
+        "OnLeave",
+        function(self)
+            self:SetBackdropColor(
+                unpack(colors.accent)
+            )
+        end
+    )
 
     page:SetScript("OnSizeChanged", ApplyScroll)
 
-    page:SetScript("OnHide", function()
-        dragging = false
-    end)
+    page:SetScript(
+        "OnHide",
+        function()
+            dragging = false
+        end
+    )
+
+    -- Selected bar settings
 
     local function GetSettings()
-        local settings = context.GetSelectedSettings()
+        local settings =
+            context.GetSelectedSettings()
 
         if not settings then
             return nil
         end
 
-        ns.GetBarAppearance(context.GetSelectedBarID())
+        ns.GetBarAppearance(
+            context.GetSelectedBarID()
+        )
 
         return settings
     end
@@ -228,7 +307,12 @@ function ns.CreateAppearanceConfigPage(parent, context)
         )
     end
 
-    local function Check(section, label, key, y)
+    local function Check(
+        section,
+        label,
+        key,
+        y
+    )
         controls[#controls + 1] =
             widgets.CreateCheckButton(
                 section,
@@ -248,8 +332,21 @@ function ns.CreateAppearanceConfigPage(parent, context)
                         return
                     end
 
-                    settings.appearance[key] = value
+                    settings.appearance[key] =
+                        value == true
+
                     Apply()
+
+                    if ns.RefreshEmptyButtonVisibility
+                        and (
+                            key == "showEmptyButtons"
+                            or key == "showEmptyWhileUnlocked"
+                        )
+                    then
+                        ns.RefreshEmptyButtonVisibility(
+                            context.GetSelectedBarID()
+                        )
+                    end
                 end
             )
     end
@@ -310,7 +407,10 @@ function ns.CreateAppearanceConfigPage(parent, context)
 
         for index, option in ipairs(options) do
             local value = option[1]
-            local column = (index - 1) % columns
+
+            local column =
+                (index - 1) % columns
+
             local row = math.floor(
                 (index - 1) / columns
             )
@@ -360,6 +460,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
 
         label:SetFont(font, 10, "OUTLINE")
         label:SetTextColor(unpack(colors.muted))
+
         label:SetPoint(
             "TOPLEFT",
             section,
@@ -367,6 +468,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
             x,
             y
         )
+
         label:SetText(text)
 
         return label
@@ -383,6 +485,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
         )
 
         button:SetSize(72, 24)
+
         button:SetPoint(
             "TOPLEFT",
             section,
@@ -397,7 +500,12 @@ function ns.CreateAppearanceConfigPage(parent, context)
             edgeSize = 1,
         })
 
-        Label(section, "Color", 24, y - 6)
+        Label(
+            section,
+            "Color",
+            24,
+            y - 6
+        )
 
         local function Refresh()
             local settings = GetSettings()
@@ -406,7 +514,8 @@ function ns.CreateAppearanceConfigPage(parent, context)
                 return
             end
 
-            local color = settings.appearance[key]
+            local color =
+                settings.appearance[key]
 
             button:SetBackdropColor(
                 color.r,
@@ -414,6 +523,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
                 color.b,
                 1
             )
+
             button:SetBackdropBorderColor(
                 0.35,
                 0.38,
@@ -424,62 +534,70 @@ function ns.CreateAppearanceConfigPage(parent, context)
 
         refreshers[#refreshers + 1] = Refresh
 
-        button:SetScript("OnClick", function()
-            local settings = GetSettings()
+        button:SetScript(
+            "OnClick",
+            function()
+                local settings = GetSettings()
 
-            if not settings then
-                return
-            end
+                if not settings then
+                    return
+                end
 
-            local appearance = settings.appearance
-            local barID = context.GetSelectedBarID()
-            local color = appearance[key]
+                local appearance =
+                    settings.appearance
 
-            local old = {
-                r = color.r,
-                g = color.g,
-                b = color.b,
-                a = color.a,
-            }
+                local barID =
+                    context.GetSelectedBarID()
 
-            local function Set(r, g, b)
-                appearance[key] = {
-                    r = r,
-                    g = g,
-                    b = b,
-                    a = old.a or 1,
+                local color = appearance[key]
+
+                local old = {
+                    r = color.r,
+                    g = color.g,
+                    b = color.b,
+                    a = color.a,
                 }
 
-                ns.ApplyBarAppearance(barID)
+                local function Set(r, g, b)
+                    appearance[key] = {
+                        r = r,
+                        g = g,
+                        b = b,
+                        a = old.a or 1,
+                    }
 
-                if context.GetSelectedSettings()
-                    == settings
-                then
-                    Refresh()
+                    ns.ApplyBarAppearance(barID)
+
+                    if context.GetSelectedSettings()
+                        == settings
+                    then
+                        Refresh()
+                    end
                 end
+
+                ColorPickerFrame:
+                    SetupColorPickerAndShow({
+                        r = old.r,
+                        g = old.g,
+                        b = old.b,
+                        hasOpacity = false,
+
+                        swatchFunc = function()
+                            Set(
+                                ColorPickerFrame:GetColorRGB()
+                            )
+                        end,
+
+                        cancelFunc = function()
+                            Set(
+                                old.r,
+                                old.g,
+                                old.b
+                            )
+                        end,
+                    })
             end
-
-            ColorPickerFrame:SetupColorPickerAndShow({
-                r = old.r,
-                g = old.g,
-                b = old.b,
-                hasOpacity = false,
-
-                swatchFunc = function()
-                    Set(
-                        ColorPickerFrame:GetColorRGB()
-                    )
-                end,
-
-                cancelFunc = function()
-                    Set(
-                        old.r,
-                        old.g,
-                        old.b
-                    )
-                end,
-            })
-        end)
+        )
     end
 
     local function OffsetBox(
@@ -489,7 +607,8 @@ function ns.CreateAppearanceConfigPage(parent, context)
         label,
         x
     )
-        local key = prefix .. "Offset" .. axis
+        local key =
+            prefix .. "Offset" .. axis
 
         Label(section, label, x, -350)
 
@@ -501,6 +620,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
         )
 
         box:SetSize(180, 22)
+
         box:SetPoint(
             "TOPLEFT",
             section,
@@ -542,7 +662,8 @@ function ns.CreateAppearanceConfigPage(parent, context)
             editingSettings = nil
             editingBarID = nil
 
-            local value = tonumber(box:GetText())
+            local value =
+                tonumber(box:GetText())
 
             if value and value == value then
                 value = math.max(
@@ -553,6 +674,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
                 value = math.floor(value + 0.5)
 
                 settings.appearance[key] = value
+
                 ns.ApplyBarAppearance(barID)
             end
 
@@ -589,11 +711,17 @@ function ns.CreateAppearanceConfigPage(parent, context)
             end
         )
 
-        box:SetScript("OnEditFocusLost", Commit)
+        box:SetScript(
+            "OnEditFocusLost",
+            Commit
+        )
 
-        box:SetScript("OnHide", function(self)
-            self:ClearFocus()
-        end)
+        box:SetScript(
+            "OnHide",
+            function(self)
+                self:ClearFocus()
+            end
+        )
 
         refreshers[#refreshers + 1] = function()
             if editingSettings
@@ -609,6 +737,8 @@ function ns.CreateAppearanceConfigPage(parent, context)
             end
         end
     end
+
+    -- Text styling
 
     local positions = {
         { "TOPLEFT", "Top Left" },
@@ -654,7 +784,11 @@ function ns.CreateAppearanceConfigPage(parent, context)
             3
         )
 
-        Color(section, prefix, -306)
+        Color(
+            section,
+            prefix,
+            -306
+        )
 
         OffsetBox(
             section,
@@ -672,6 +806,10 @@ function ns.CreateAppearanceConfigPage(parent, context)
             254
         )
     end
+
+    -- Compact section layout
+    -- Each column stacks independently.
+    -- The overall height follows the taller column.
 
     local SECTION_WIDTH = 496
     local COLUMN_SPACING = 516
@@ -694,7 +832,10 @@ function ns.CreateAppearanceConfigPage(parent, context)
         end
 
         content:SetHeight(
-            math.max(1, height + BOTTOM_PADDING)
+            math.max(
+                1,
+                height + BOTTOM_PADDING
+            )
         )
     end
 
@@ -724,6 +865,16 @@ function ns.CreateAppearanceConfigPage(parent, context)
 
         return section
     end
+
+    local function Percent(value)
+        return string.format(
+            "%d%%",
+            math.floor(value * 100 + 0.5)
+        )
+    end
+
+    -- LEFT COLUMN / RIGHT COLUMN
+    -- The explicit order below also determines vertical placement.
 
     -- ICON
 
@@ -841,19 +992,18 @@ function ns.CreateAppearanceConfigPage(parent, context)
         true
     )
 
-    local function Percent(value)
-        return string.format(
-            "%d%%",
-            math.floor(value * 100 + 0.5)
-        )
-    end
-
     -- BUTTON BACKGROUND
+    --
+    -- Existing opacity control retained.
+    -- Two new empty-button visibility options added.
+    --
+    -- The section is content-sized rather than using
+    -- the original oversized Appearance card height.
 
     local backgroundSection = Section(
         "Button Background",
         0,
-        135
+        236
     )
 
     Slider(
@@ -865,6 +1015,20 @@ function ns.CreateAppearanceConfigPage(parent, context)
         0.05,
         -48,
         Percent
+    )
+
+    Check(
+        backgroundSection,
+        "Show Empty Buttons",
+        "showEmptyButtons",
+        -140
+    )
+
+    Check(
+        backgroundSection,
+        "Show Empty Buttons While Unlocked",
+        "showEmptyWhileUnlocked",
+        -180
     )
 
     -- ACTION STATE FEEDBACK
@@ -917,8 +1081,7 @@ function ns.CreateAppearanceConfigPage(parent, context)
     )
 
     -- PROC HIGHLIGHT
-    -- Placed in the left column beneath Flyout Direction,
-    -- avoiding unnecessary vertical space on the right.
+    -- Remains in the left column, as previously approved.
 
     local procSection = Section(
         "Proc Highlight",
@@ -947,6 +1110,8 @@ function ns.CreateAppearanceConfigPage(parent, context)
         -110,
         Percent
     )
+
+    -- Refresh selected-bar settings
 
     page.Refresh = function()
         if not GetSettings() then
