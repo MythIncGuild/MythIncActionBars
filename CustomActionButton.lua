@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 local customButtons = setmetatable({}, { __mode = "k" })
@@ -78,6 +79,7 @@ local function GetAssignment(barID, buttonID)
 
     ActivateSpecialization(settings)
     settings.assignments = settings.assignments or {}
+
     return settings.assignments[buttonID]
 end
 
@@ -92,6 +94,7 @@ local function SetAssignment(barID, buttonID, assignment)
     ActivateSpecialization(settings)
     settings.assignments = settings.assignments or {}
     settings.assignments[buttonID] = assignment
+
     return true
 end
 
@@ -180,12 +183,14 @@ local function GetAssignmentIcon(assignment)
     if assignment.type == "mount" then
         local _, _, icon =
             C_MountJournal.GetMountInfoByID(assignment.id)
+
         return icon
     end
 
     if assignment.type == "battlepet" then
         local _, _, _, _, _, _, _, _, icon =
             C_PetJournal.GetPetInfoByPetID(assignment.id)
+
         return icon
     end
 
@@ -230,8 +235,14 @@ local function ApplySecureAssignment(button, assignment)
     end
 
     if assignment.type == "spell" then
+        -- Preserve the numeric spell ID in the assignment for
+        -- icons, cooldowns, charges, feedback and dragging.
+        -- Use the localized spell name for secure execution.
+        local info = C_Spell.GetSpellInfo(assignment.id)
+        local castSpell = info and info.name or assignment.id
+
+        button:SetAttribute("spell", castSpell)
         button:SetAttribute("type", "spell")
-        button:SetAttribute("spell", assignment.id)
         return
     end
 
@@ -419,23 +430,28 @@ function ns.CreateCustomActionButton(
         button,
         "CooldownFrameTemplate"
     )
+
     cooldown:SetAllPoints(icon)
     button.cooldown = cooldown
 
     local count = button:CreateFontString(
         nil, "OVERLAY", "NumberFontNormal"
     )
+
     count:SetPoint(
         "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2
     )
+
     button.Count = count
 
     local hotKey = button:CreateFontString(
         nil, "OVERLAY", "NumberFontNormalSmall"
     )
+
     hotKey:SetPoint(
         "TOPRIGHT", button, "TOPRIGHT", -3, -3
     )
+
     hotKey:SetJustifyH("RIGHT")
     hotKey:SetText("")
     button.HotKey = hotKey
@@ -456,9 +472,11 @@ function ns.CreateCustomActionButton(
     dragHighlight:SetPoint(
         "TOPLEFT", button, "TOPLEFT", 2, -2
     )
+
     dragHighlight:SetPoint(
         "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2
     )
+
     dragHighlight:SetColorTexture(0.15, 0.8, 0.78, 0.32)
     dragHighlight:Hide()
     button.DragHighlight = dragHighlight
@@ -679,6 +697,7 @@ function ns.CreateCustomActionButton(
                     C_MountJournal.GetMountUsabilityByID(
                         assignment.id, true
                     )
+
                 usableState = usable ~= false
             else
                 usableState = true
@@ -773,6 +792,7 @@ function ns.CreateCustomActionButton(
                     C_Item.IsItemInRange(
                         assignment.id, "target"
                     )
+
                 outOfRangeState = inRange == false
             else
                 outOfRangeState = false
@@ -956,7 +976,6 @@ function ns.CreateCustomActionButton(
         end
 
         local previous = GetAssignment(barID, buttonID)
-
         ClearCursor()
 
         if previous and not PickupAssignment(previous) then
@@ -974,6 +993,7 @@ function ns.CreateCustomActionButton(
 
         ns.ClearDragHighlight()
         UpdateAssignment()
+
         return true
     end
 
@@ -983,6 +1003,7 @@ function ns.CreateCustomActionButton(
         placementGeneration = placementGeneration + 1
 
         local generation = placementGeneration
+
         button:SetAttribute("type", nil)
 
         C_Timer.After(0, function()
@@ -1059,6 +1080,7 @@ function ns.CreateCustomActionButton(
             suppressedClick = false
             cursorHandled = false
             UpdateAssignment()
+
         elseif not suppressedClick then
             UpdateCooldown()
             UpdateCheckedState()
@@ -1105,6 +1127,7 @@ function ns.CreateCustomActionButton(
         UpdateDragHighlight()
 
         local assignment = GetAssignment(barID, buttonID)
+
         if not assignment then
             return
         end
@@ -1254,5 +1277,6 @@ function ns.CreateCustomActionButton(
 
     customButtons[button] = true
     UpdateAssignment()
+
     return button
 end
