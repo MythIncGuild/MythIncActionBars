@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 function ns.CreateDefaultBarSettings(
@@ -5,46 +6,26 @@ function ns.CreateDefaultBarSettings(
     enabled,
     source
 )
-    source =
-        source or "custom"
+    source = source or "custom"
 
     local x = 0
     local y = -200
 
     if source == "blizzard" then
-        y =
-            -200
-            - ((barID - 1) * 45)
+        y = -200 - ((barID - 1) * 45)
     else
-        local customIndex =
-            math.max(
-                1,
-                barID - 8
-            )
+        local customIndex = math.max(1, barID - 8)
 
-        x =
-            ((customIndex - 1) % 5)
-            * 24
-
-        y =
-            -100
-            - (
-                ((customIndex - 1) % 5)
-                * 24
-            )
+        x = ((customIndex - 1) % 5) * 24
+        y = -100 - (((customIndex - 1) % 5) * 24)
     end
 
     return {
-        name =
-            "Bar " .. barID,
+        name = "Bar " .. barID,
 
-        enabled =
-            enabled
-            and true
-            or false,
+        enabled = enabled and true or false,
 
-        source =
-            source,
+        source = source,
 
         buttonCount = 12,
         buttonSize = 36,
@@ -102,7 +83,6 @@ function ns.CreateDefaultBarSettings(
         },
 
         keybinds = {},
-
         assignments = {},
 
         position = {
@@ -116,6 +96,11 @@ end
 
 ns.defaults = {
     bars = {},
+
+    buttonInteraction = {
+        lockContents = true,
+        activateOnPress = false,
+    },
 }
 
 for barID = 1, 8 do

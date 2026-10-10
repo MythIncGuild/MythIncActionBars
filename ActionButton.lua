@@ -1,7 +1,50 @@
+
 local addonName, ns = ...
 
 local BUTTON_SIZE = 36
 local BUTTONS_PER_PAGE = 12
+
+-- Shared interaction registry for regular and custom buttons.
+ns.InteractionButtons = ns.InteractionButtons or {}
+
+-- Both regular and custom buttons use the same profile settings.
+function ns.GetButtonInteractionSettings()
+    local settings = ns.db and ns.db.buttonInteraction
+
+    local locked = not settings
+        or settings.lockContents ~= false
+
+    local onPress = settings
+        and settings.activateOnPress == true
+        or false
+
+    return locked, onPress
+end
+
+function ns.RefreshButtonInteraction()
+    if InCombatLockdown() then
+        return
+    end
+
+    for button in pairs(ns.InteractionButtons) do
+        if button and button.ApplyButtonInteraction then
+            button:ApplyButtonInteraction()
+        end
+    end
+end
+
+local interactionEvents = CreateFrame("Frame")
+interactionEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+interactionEvents:RegisterEvent("MODIFIER_STATE_CHANGED")
+
+interactionEvents:SetScript("OnEvent", function(_, event, key)
+    if event == "PLAYER_REGEN_ENABLED"
+        or key == "LSHIFT"
+        or key == "RSHIFT"
+    then
+        ns.RefreshButtonInteraction()
+    end
+end)
 
 ns.DragHighlightState =
     ns.DragHighlightState
@@ -31,9 +74,7 @@ function ns.SetDragHighlight(
             and button.DragHighlight
         then
             button.DragHighlight:Show()
-
-            state.activeButton =
-                button
+            state.activeButton = button
         end
 
         return
@@ -45,11 +86,8 @@ function ns.SetDragHighlight(
         button.DragHighlight:Hide()
     end
 
-    if state.activeButton
-        == button
-    then
-        state.activeButton =
-            nil
+    if state.activeButton == button then
+        state.activeButton = nil
     end
 end
 
@@ -66,14 +104,11 @@ function ns.ClearDragHighlight()
         button.DragHighlight:Hide()
     end
 
-    state.activeButton =
-        nil
+    state.activeButton = nil
 end
 
 local dragCursorFrame =
-    CreateFrame(
-        "Frame"
-    )
+    CreateFrame("Frame")
 
 dragCursorFrame:RegisterEvent(
     "CURSOR_CHANGED"
@@ -82,8 +117,7 @@ dragCursorFrame:RegisterEvent(
 dragCursorFrame:SetScript(
     "OnEvent",
     function()
-        local cursorType =
-            GetCursorInfo()
+        local cursorType = GetCursorInfo()
 
         if not cursorType then
             ns.ClearDragHighlight()
@@ -109,28 +143,60 @@ function ns.CreateActionButton(
         BUTTON_SIZE
     )
 
-button:SetAttribute(
-    "type",
-    "action"
-)
+    button:SetAttribute(
+        "type",
+        "action"
+    )
 
-button:SetAttribute(
-    "action",
-    actionSlot
-)
+    button:SetAttribute(
+        "action",
+        actionSlot
+    )
 
-button:SetAttribute(
-    "useOnKeyDown",
-    false
-)
+    button:SetAttribute(
+        "useOnKeyDown",
+        false
+    )
 
-button:RegisterForClicks(
-    "AnyUp"
-)
+    button:RegisterForClicks(
+        "AnyDown",
+        "AnyUp"
+    )
 
-button:RegisterForDrag(
-    "LeftButton"
-)
+    button:RegisterForDrag(
+        "LeftButton"
+    )
+
+    function button:ApplyButtonInteraction()
+        if InCombatLockdown() then
+            return
+        end
+
+        local locked, onPress =
+            ns.GetButtonInteractionSettings()
+
+        -- Dragging cannot be distinguished from a normal click
+        -- before WoW reaches its drag threshold.
+        --
+        -- When unlocked, we execute on release even if press
+        -- activation was requested.
+        --
+        -- When locked and Shift is held, use release activation
+        -- to allow safe Shift-dragging.
+
+        local useDown =
+            onPress
+            and locked
+            and not IsShiftKeyDown()
+
+        self:SetAttribute(
+            "useOnKeyDown",
+            useDown
+        )
+    end
+
+    ns.InteractionButtons[button] = true
+    button:ApplyButtonInteraction()
 
     local background =
         button:CreateTexture(
@@ -267,72 +333,71 @@ button:RegisterForDrag(
     )
 
     button.Border =
-    border
+        border
 
-local dragHighlight =
-    button:CreateTexture(
-        nil,
-        "OVERLAY",
-        nil,
-        6
-    )
-
-dragHighlight:SetPoint(
-    "TOPLEFT",
-    button,
-    "TOPLEFT",
-    2,
-    -2
-)
-
-dragHighlight:SetPoint(
-    "BOTTOMRIGHT",
-    button,
-    "BOTTOMRIGHT",
-    -2,
-    2
-)
-
-dragHighlight:SetColorTexture(
-    0.15,
-    0.8,
-    0.78,
-    0.32
-)
-
-dragHighlight:Hide()
-
-button.DragHighlight =
-    dragHighlight
-
-local function UpdateDragHighlight()
-    if InCombatLockdown() then
-        ns.SetDragHighlight(
-            button,
-            false
+    local dragHighlight =
+        button:CreateTexture(
+            nil,
+            "OVERLAY",
+            nil,
+            6
         )
 
-        return
+    dragHighlight:SetPoint(
+        "TOPLEFT",
+        button,
+        "TOPLEFT",
+        2,
+        -2
+    )
+
+    dragHighlight:SetPoint(
+        "BOTTOMRIGHT",
+        button,
+        "BOTTOMRIGHT",
+        -2,
+        2
+    )
+
+    dragHighlight:SetColorTexture(
+        0.15,
+        0.8,
+        0.78,
+        0.32
+    )
+
+    dragHighlight:Hide()
+
+    button.DragHighlight =
+        dragHighlight
+
+    local function UpdateDragHighlight()
+        if InCombatLockdown() then
+            ns.SetDragHighlight(
+                button,
+                false
+            )
+            return
+        end
+
+        local cursorType =
+            GetCursorInfo()
+
+        local validCursor =
+            cursorType == "spell"
+            or cursorType == "item"
+            or cursorType == "macro"
+            or cursorType == "action"
+            or cursorType == "mount"
+            or cursorType == "battlepet"
+
+        ns.SetDragHighlight(
+            button,
+            validCursor
+        )
     end
 
-    local cursorType =
-        GetCursorInfo()
-
-    local validCursor =
-    cursorType == "spell"
-    or cursorType == "item"
-    or cursorType == "macro"
-    or cursorType == "action"
-    or cursorType == "mount"
-    or cursorType == "battlepet"
-
-    ns.SetDragHighlight(
-        button,
-        validCursor
-    )
-end
-
-local buttonID =
+    local buttonID =
         ((actionSlot - 1)
             % BUTTONS_PER_PAGE)
         + 1
@@ -354,7 +419,9 @@ local buttonID =
         },
     }
 
-    local automaticPaging = parent.barID == 1
+    local automaticPaging =
+        parent.barID == 1
+
     local currentActionSlot =
         actionSlot
 
@@ -370,8 +437,7 @@ local buttonID =
         return (
             (page - 1)
             * BUTTONS_PER_PAGE
-        )
-            + buttonID
+        ) + buttonID
     end
 
     local function ResolveActionSlot(
@@ -408,9 +474,15 @@ local buttonID =
 
     local function GetEffectiveActionSlot()
         if automaticPaging then
-            local page = tonumber(button:GetAttribute("miab-page")) or 1
+            local page = tonumber(
+                button:GetAttribute(
+                    "miab-page"
+                )
+            ) or 1
+
             return GetPageSlot(page)
         end
+
         return ResolveActionSlot(
             IsShiftKeyDown(),
             IsControlKeyDown(),
@@ -430,9 +502,7 @@ local buttonID =
         end
 
         local settings =
-            ns.db.bars[
-                barID
-            ]
+            ns.db.bars[barID]
 
         if not settings then
             return nil
@@ -442,34 +512,45 @@ local buttonID =
     end
 
     local function RefreshKeybindText()
-    if not C_ActionBar.HasAction(
-        currentActionSlot
-    ) then
-        hotKey:SetText("")
-        return
-    end
+        if not C_ActionBar.HasAction(
+            currentActionSlot
+        ) then
+            hotKey:SetText("")
+            return
+        end
 
-    if not ns.GetDisplayKeybindForActionSlot
-        or not ns.FormatKeybind
-    then
-        hotKey:SetText("")
-        return
-    end
+        if not ns.GetDisplayKeybindForActionSlot
+            or not ns.FormatKeybind
+        then
+            hotKey:SetText("")
+            return
+        end
 
-    local key
-    if automaticPaging and ns.GetButtonKeybind then
-        key = ns.GetButtonKeybind(1, buttonID, "primary")
-            or ns.GetButtonKeybind(1, buttonID, "secondary")
-    else
-        key = ns.GetDisplayKeybindForActionSlot(currentActionSlot)
-    end
+        local key
 
-    hotKey:SetText(
-        ns.FormatKeybind(
-            key
+        if automaticPaging
+            and ns.GetButtonKeybind
+        then
+            key = ns.GetButtonKeybind(
+                1,
+                buttonID,
+                "primary"
+            ) or ns.GetButtonKeybind(
+                1,
+                buttonID,
+                "secondary"
+            )
+        else
+            key =
+                ns.GetDisplayKeybindForActionSlot(
+                    currentActionSlot
+                )
+        end
+
+        hotKey:SetText(
+            ns.FormatKeybind(key)
         )
-    )
-end
+    end
 
     local function ApplyColor()
         local appearance =
@@ -477,18 +558,15 @@ end
 
         local rangeColoring =
             not appearance
-            or appearance.rangeColoring
-                ~= false
+            or appearance.rangeColoring ~= false
 
         local usabilityColoring =
             not appearance
-            or appearance.usabilityColoring
-                ~= false
+            or appearance.usabilityColoring ~= false
 
         local desaturateUnusable =
             appearance
-            and appearance.desaturateUnusable
-                == true
+            and appearance.desaturateUnusable == true
 
         if rangeColoring
             and outOfRangeState
@@ -545,10 +623,7 @@ end
             )
 
         if texture then
-            icon:SetTexture(
-                texture
-            )
-
+            icon:SetTexture(texture)
             icon:Show()
         else
             icon:SetTexture(nil)
@@ -568,19 +643,19 @@ end
     end
 
     local function UpdateCount()
-    if not C_ActionBar.HasAction(
-        currentActionSlot
-    ) then
-        count:SetText("")
-        return
-    end
-
-    count:SetText(
-        C_ActionBar.GetActionDisplayCount(
+        if not C_ActionBar.HasAction(
             currentActionSlot
+        ) then
+            count:SetText("")
+            return
+        end
+
+        count:SetText(
+            C_ActionBar.GetActionDisplayCount(
+                currentActionSlot
+            )
         )
-    )
-end
+    end
 
     local function UpdateUsability()
         local usable,
@@ -602,10 +677,7 @@ end
         if not C_ActionBar.HasAction(
             currentActionSlot
         ) then
-            button:SetChecked(
-                false
-            )
-
+            button:SetChecked(false)
             return
         end
 
@@ -616,23 +688,20 @@ end
         )
     end
 
-    UpdateAll =
-        function()
-            UpdateIcon()
-            UpdateCooldown()
-            UpdateCount()
-            UpdateUsability()
-            UpdateCheckedState()
-            RefreshKeybindText()
-        end
+    UpdateAll = function()
+        UpdateIcon()
+        UpdateCooldown()
+        UpdateCount()
+        UpdateUsability()
+        UpdateCheckedState()
+        RefreshKeybindText()
+    end
 
     local function RefreshEffectiveActionSlot()
         local newSlot =
             GetEffectiveActionSlot()
 
-        if newSlot
-            == currentActionSlot
-        then
+        if newSlot == currentActionSlot then
             RefreshKeybindText()
             return
         end
@@ -676,11 +745,15 @@ end
         )
     end
 
-    -- These attributes are changed only by the restricted state handler in combat.
-    -- All click modifier combinations follow the same securely selected page.
+    -- These attributes are changed only by the restricted
+    -- state handler in combat.
+    -- All click modifier combinations follow the same page.
+
     local automaticPageHandler = [[
         local page = tonumber(newstate) or 1
-        local slot = (page - 1) * 12 + self:GetAttribute("miab-button-id")
+        local slot = (page - 1) * 12
+            + self:GetAttribute("miab-button-id")
+
         self:SetAttribute("action", slot)
         self:SetAttribute("shift-action*", slot)
         self:SetAttribute("ctrl-action*", slot)
@@ -693,35 +766,83 @@ end
     ]]
 
     local function ConfigureAutomaticPaging()
-        if not automaticPaging then return end
+        if not automaticPaging then
+            return
+        end
 
         local conditions = {
-            -- Blizzard retains ownership of special vehicle/override controls.
-            "[vehicleui] 1", "[overridebar] 1", "[possessbar] 1",
+            "[vehicleui] 1",
+            "[overridebar] 1",
+            "[possessbar] 1",
         }
-        for _, modifier in ipairs({ "alt", "ctrl", "shift" }) do
-            local entry = modifierPages[modifier]
+
+        for _, modifier in ipairs({
+            "alt",
+            "ctrl",
+            "shift",
+        }) do
+            local entry =
+                modifierPages[modifier]
+
             if entry.enabled then
                 conditions[#conditions + 1] =
-                    "[mod:" .. modifier .. "] " .. entry.page
+                    "[mod:"
+                    .. modifier
+                    .. "] "
+                    .. entry.page
             end
         end
+
         for page = 2, 6 do
-            conditions[#conditions + 1] = "[bar:" .. page .. "] " .. page
+            conditions[#conditions + 1] =
+                "[bar:"
+                .. page
+                .. "] "
+                .. page
         end
-        -- Bonus offsets 1-4 are class/form/stealth pages 7-10.
-        -- Offset 5 is reserved for special control and stays with Blizzard.
+
+        -- Bonus offsets 1-4 are class/form/stealth
+        -- pages 7-10. Offset 5 stays with Blizzard.
+
         for offset = 1, 4 do
             conditions[#conditions + 1] =
-                "[bonusbar:" .. offset .. "] " .. (offset + 6)
+                "[bonusbar:"
+                .. offset
+                .. "] "
+                .. (offset + 6)
         end
-        conditions[#conditions + 1] = "1"
 
-        UnregisterStateDriver(button, "page")
-        button:SetAttribute("_onstate-page", automaticPageHandler)
-        button:SetAttribute("miab-button-id", buttonID)
-        button:SetAttribute("state-page", nil)
-        RegisterStateDriver(button, "page", table.concat(conditions, "; "))
+        conditions[#conditions + 1] =
+            "1"
+
+        UnregisterStateDriver(
+            button,
+            "page"
+        )
+
+        button:SetAttribute(
+            "_onstate-page",
+            automaticPageHandler
+        )
+
+        button:SetAttribute(
+            "miab-button-id",
+            buttonID
+        )
+
+        button:SetAttribute(
+            "state-page",
+            nil
+        )
+
+        RegisterStateDriver(
+            button,
+            "page",
+            table.concat(
+                conditions,
+                "; "
+            )
+        )
     end
 
     local function ConfigureActionPages(
@@ -735,65 +856,47 @@ end
             settings or {}
 
         local shift =
-            settings.shift
-            or {}
+            settings.shift or {}
 
         local ctrl =
-            settings.ctrl
-            or {}
+            settings.ctrl or {}
 
         local alt =
-            settings.alt
-            or {}
+            settings.alt or {}
 
         modifierPages.shift.enabled =
-            shift.enabled
-            and true
-            or false
+            shift.enabled and true or false
 
         modifierPages.shift.page =
             math.max(
                 1,
                 math.min(
                     15,
-                    tonumber(
-                        shift.page
-                    )
-                        or 2
+                    tonumber(shift.page) or 2
                 )
             )
 
         modifierPages.ctrl.enabled =
-            ctrl.enabled
-            and true
-            or false
+            ctrl.enabled and true or false
 
         modifierPages.ctrl.page =
             math.max(
                 1,
                 math.min(
                     15,
-                    tonumber(
-                        ctrl.page
-                    )
-                        or 3
+                    tonumber(ctrl.page) or 3
                 )
             )
 
         modifierPages.alt.enabled =
-            alt.enabled
-            and true
-            or false
+            alt.enabled and true or false
 
         modifierPages.alt.page =
             math.max(
                 1,
                 math.min(
                     15,
-                    tonumber(
-                        alt.page
-                    )
-                        or 4
+                    tonumber(alt.page) or 4
                 )
             )
 
@@ -857,157 +960,207 @@ end
         return true
     end
 
-    button:HookScript("OnAttributeChanged", function(_, attribute, value)
-        if automaticPaging and attribute == "miab-page" and value then
-            RefreshEffectiveActionSlot()
+    button:HookScript(
+        "OnAttributeChanged",
+        function(_, attribute, value)
+            if automaticPaging
+                and attribute == "miab-page"
+                and value
+            then
+                RefreshEffectiveActionSlot()
+            end
         end
-    end)
+    )
 
     button:SetScript(
-    "OnEnter",
-    function(self)
-        UpdateDragHighlight()
+        "OnEnter",
+        function(self)
+            UpdateDragHighlight()
 
-        GameTooltip:SetOwner(
-            self,
-            "ANCHOR_RIGHT"
-        )
-
-        GameTooltip:SetAction(
-            currentActionSlot
-        )
-
-        GameTooltip:Show()
-    end
-)
-
-button:SetScript(
-    "OnLeave",
-    function()
-        ns.SetDragHighlight(
-    button,
-    false
-)
-        GameTooltip:Hide()
-    end
-)
-
-    button:SetScript(
-    "OnDragStart",
-    function()
-        if InCombatLockdown() then
-            return
-        end
-
-        PickupAction(
-            currentActionSlot
-        )
-
-        UpdateDragHighlight()
-
-        C_Timer.After(
-            0,
-            function()
-                UpdateAll()
-            end
-        )
-    end
-)
-
-   button:SetScript(
-    "OnReceiveDrag",
-    function()
-        if InCombatLockdown() then
-            return
-        end
-
-        C_ActionBar.PutActionInSlot(
-            currentActionSlot
-        )
-
-        ns.SetDragHighlight(
-    button,
-    false
-)
-
-        C_Timer.After(
-            0,
-            function()
-                UpdateAll()
-            end
-        )
-    end
-)
-
-    local suppressSecureAction =
-    false
-
-button:HookScript(
-    "PreClick",
-    function(self)
-        suppressSecureAction =
-            false
-
-        if InCombatLockdown() then
-            return
-        end
-
-        local cursorType =
-            GetCursorInfo()
-
-        if not cursorType then
-            return
-        end
-
-        suppressSecureAction =
-            true
-
-        self:SetAttribute(
-            "type",
-            nil
-        )
-
-        C_ActionBar.PutActionInSlot(
-            currentActionSlot
-        )
-
-        ns.ClearDragHighlight()
-
-        C_Timer.After(
-            0,
-            function()
-                UpdateAll()
-            end
-        )
-    end
-)
-
-button:HookScript(
-    "PostClick",
-    function(self)
-        if suppressSecureAction then
-            self:SetAttribute(
-                "type",
-                "action"
+            GameTooltip:SetOwner(
+                self,
+                "ANCHOR_RIGHT"
             )
 
-            self:SetAttribute(
-                "action",
+            GameTooltip:SetAction(
                 currentActionSlot
             )
 
-            suppressSecureAction =
-                false
+            GameTooltip:Show()
         end
+    )
 
-        UpdateCheckedState()
+    button:SetScript(
+        "OnLeave",
+        function()
+            ns.SetDragHighlight(
+                button,
+                false
+            )
+
+            GameTooltip:Hide()
+        end
+    )
+
+    -- Interaction state is deliberately separate from paging.
+    -- Page changes continue to own the secure action attribute.
+
+    local dragged = false
+    local placementPending = false
+    local dropHandled = false
+
+    local function RefreshAfterInteraction()
+        C_Timer.After(0, function()
+            UpdateAll()
+        end)
     end
-)
+
+    button:SetScript(
+        "OnDragStart",
+        function()
+            if InCombatLockdown()
+                or GetCursorInfo()
+            then
+                return
+            end
+
+            local locked =
+                ns.GetButtonInteractionSettings()
+
+            if locked
+                and not IsShiftKeyDown()
+            then
+                return
+            end
+
+            PickupAction(
+                currentActionSlot
+            )
+
+            if GetCursorInfo() then
+                dragged = true
+
+                UpdateDragHighlight()
+                RefreshAfterInteraction()
+            end
+        end
+    )
+
+    button:SetScript(
+        "OnReceiveDrag",
+        function()
+            if InCombatLockdown()
+                or not GetCursorInfo()
+            then
+                return
+            end
+
+            -- A drag-drop is handled once here.
+            -- Its trailing mouse release must not place again.
+
+            placementPending = true
+            dropHandled = true
+
+            C_ActionBar.PutActionInSlot(
+                currentActionSlot
+            )
+
+            ns.SetDragHighlight(
+                button,
+                false
+            )
+
+            RefreshAfterInteraction()
+        end
+    )
+
+    button:HookScript(
+        "PreClick",
+        function(self, mouseButton, down)
+            if InCombatLockdown() then
+                return
+            end
+
+            if down then
+                dragged = false
+                dropHandled = false
+                placementPending =
+                    GetCursorInfo() ~= nil
+            end
+
+            if dragged
+                or dropHandled
+                or placementPending
+            then
+                self:SetAttribute(
+                    "type",
+                    nil
+                )
+
+                if not down
+                    and not dragged
+                    and not dropHandled
+                    and GetCursorInfo()
+                then
+                    C_ActionBar.PutActionInSlot(
+                        currentActionSlot
+                    )
+
+                    ns.ClearDragHighlight()
+                    RefreshAfterInteraction()
+                end
+
+                return
+            end
+
+            if GetCursorInfo() then
+                -- Cursor content may have arrived from outside
+                -- this button's mouse-down event.
+
+                self:SetAttribute(
+                    "type",
+                    nil
+                )
+
+                placementPending = true
+
+                if not down then
+                    C_ActionBar.PutActionInSlot(
+                        currentActionSlot
+                    )
+
+                    ns.ClearDragHighlight()
+                    RefreshAfterInteraction()
+                end
+            end
+        end
+    )
+
+    button:HookScript(
+        "PostClick",
+        function(self, mouseButton, down)
+            if not InCombatLockdown() then
+                -- Only restore the type. Restoring the action
+                -- attribute would overwrite secure paging.
+
+                self:SetAttribute(
+                    "type",
+                    "action"
+                )
+
+                if not down then
+                    dragged = false
+                    placementPending = false
+                    dropHandled = false
+                end
+            end
+
+            UpdateCheckedState()
+        end
+    )
 
     local eventFrame =
-        CreateFrame(
-            "Frame"
-        )
+        CreateFrame("Frame")
 
     eventFrame:RegisterEvent(
         "PLAYER_LOGIN"
@@ -1065,11 +1218,9 @@ button:HookScript(
                 == "ACTION_USABLE_CHANGED"
             then
                 local changes =
-                    arg1
+                    arg1 or {}
 
-                for _, change in ipairs(
-                    changes
-                ) do
+                for _, change in ipairs(changes) do
                     if change.slot
                         == currentActionSlot
                     then
@@ -1115,8 +1266,7 @@ button:HookScript(
                 == "ACTIONBAR_SLOT_CHANGED"
             then
                 if arg1 ~= 0
-                    and arg1
-                        ~= currentActionSlot
+                    and arg1 ~= currentActionSlot
                 then
                     return
                 end
@@ -1157,8 +1307,7 @@ button:HookScript(
     button.SetKeybindText =
         function(text)
             hotKey:SetText(
-                text
-                or ""
+                text or ""
             )
         end
 
@@ -1174,4 +1323,4 @@ button:HookScript(
     UpdateAll()
 
     return button
-    end
+end

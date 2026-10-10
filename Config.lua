@@ -1,4 +1,6 @@
+
 local addonName, ns = ...
+
 local widgets = ns.ConfigWidgets
 local media = ns.Media
 local colors = media.colors
@@ -32,12 +34,16 @@ local generalTab
 local actionBarsTab
 local profilesTab
 local actionBarSettingsSection
+
 local gridSpacingBox
 local gridSpacingLabel
 local gridOpacityBox
 local gridOpacityLabel
 local alignmentGridCheckbox
 local hideBlizzardCheckbox
+local lockContentsCheckbox
+local activateOnPressCheckbox
+
 local barSelectorSection
 local barSelectorViewport
 local barSelectorOffset = 0
@@ -71,13 +77,15 @@ local isMinimized = false
 local WINDOW_WIDTH = 1080
 local WINDOW_HEIGHT = 720
 local MINIMIZED_HEIGHT = 64
+
 local BAR_BUTTON_WIDTH = 124
 local BAR_BUTTON_HEIGHT = 30
 local BAR_BUTTON_SPACING = 6
 local BAR_COLUMNS = 6
 local BAR_VISIBLE_ROWS = 2
 local BAR_VISIBLE_COUNT = BAR_COLUMNS * BAR_VISIBLE_ROWS
-local SELECTOR_TOP = -170
+
+local SELECTOR_TOP = -208
 local SELECTOR_TITLE_HEIGHT = 38
 local SELECTOR_BOTTOM_PADDING = 12
 local SELECTOR_ROW_HEIGHT = BAR_BUTTON_HEIGHT + BAR_BUTTON_SPACING
@@ -248,6 +256,7 @@ end
 
 local function RefreshCategoryButtons()
     local target = GetTarget()
+
     local function Supported(name)
         return not target
             or name == "Layout"
@@ -298,6 +307,7 @@ end
 
 local function RefreshBarSelector()
     if not barSelectorViewport then return end
+
     ClearBarButtons()
     ClampBarSelectorOffset()
 
@@ -423,6 +433,8 @@ end
 
 RefreshControls = function()
     if hideBlizzardCheckbox then hideBlizzardCheckbox:Refresh() end
+    if lockContentsCheckbox then lockContentsCheckbox:Refresh() end
+    if activateOnPressCheckbox then activateOnPressCheckbox:Refresh() end
     if alignmentGridCheckbox then alignmentGridCheckbox:Refresh() end
 
     if gridSpacingBox then
@@ -510,6 +522,7 @@ end
 
 SelectBar = function(barID)
     if not GetConfigSettings(barID) then return end
+
     local oldBarID = selectedBarID
 
     if not ns.IsMoveModeActive() then
@@ -624,6 +637,7 @@ end
 
 local function FitConfigToScreen()
     if not panel then return end
+
     local targetHeight = isMinimized and MINIMIZED_HEIGHT or WINDOW_HEIGHT
     panel:SetScale(math.min(
         1,
@@ -972,7 +986,7 @@ end
 
 local function CreateActionBarSettingsSection()
     actionBarSettingsSection = widgets.CreateSection(
-        panel, "ACTION BAR SETTINGS", 1036, 62, 22, -96
+        panel, "ACTION BAR SETTINGS", 1036, 100, 22, -96
     )
 
     hideBlizzardCheckbox = widgets.CreateCheckButton(
@@ -986,8 +1000,49 @@ local function CreateActionBarSettingsSection()
         end
     )
 
+    lockContentsCheckbox = widgets.CreateCheckButton(
+        actionBarSettingsSection, "Lock Button Contents", 380, -32,
+        function()
+            return not ns.db.buttonInteraction
+                or ns.db.buttonInteraction.lockContents ~= false
+        end,
+        function(value)
+            ns.db.buttonInteraction = ns.db.buttonInteraction or {}
+            ns.db.buttonInteraction.lockContents = value == true
+
+            if ns.NotifyButtonInteractionChanged then
+                ns.NotifyButtonInteractionChanged()
+            elseif ns.RefreshButtonInteraction then
+                ns.RefreshButtonInteraction()
+            end
+
+            RefreshControls()
+        end
+    )
+
+    activateOnPressCheckbox = widgets.CreateCheckButton(
+        actionBarSettingsSection, "Activate on Press", 18, -68,
+        function()
+            return ns.db.buttonInteraction
+                and ns.db.buttonInteraction.activateOnPress == true
+                or false
+        end,
+        function(value)
+            ns.db.buttonInteraction = ns.db.buttonInteraction or {}
+            ns.db.buttonInteraction.activateOnPress = value == true
+
+            if ns.NotifyButtonInteractionChanged then
+                ns.NotifyButtonInteractionChanged()
+            elseif ns.RefreshButtonInteraction then
+                ns.RefreshButtonInteraction()
+            end
+
+            RefreshControls()
+        end
+    )
+
     alignmentGridCheckbox = widgets.CreateCheckButton(
-        actionBarSettingsSection, "Show Alignment Grid", 380, -32,
+        actionBarSettingsSection, "Show Alignment Grid", 380, -68,
         function() return ns.IsAlignmentGridEnabled() end,
         function(value)
             ns.SetAlignmentGridEnabled(value)
@@ -996,15 +1051,16 @@ local function CreateActionBarSettingsSection()
     )
 
     gridSpacingLabel = widgets.CreateText(
-        actionBarSettingsSection, "Grid spacing (px)", 11, 620, -38
+        actionBarSettingsSection, "Grid spacing (px)", 11, 620, -73
     )
 
     gridSpacingBox = CreateFrame(
         "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
     )
+
     gridSpacingBox:SetSize(58, 20)
     gridSpacingBox:SetPoint(
-        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 758, -34
+        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 758, -69
     )
     gridSpacingBox:SetAutoFocus(false)
     gridSpacingBox:SetMaxLetters(3)
@@ -1038,15 +1094,16 @@ local function CreateActionBarSettingsSection()
     RestoreGridSpacing()
 
     gridOpacityLabel = widgets.CreateText(
-        actionBarSettingsSection, "Opacity (%)", 11, 842, -38
+        actionBarSettingsSection, "Opacity (%)", 11, 842, -73
     )
 
     gridOpacityBox = CreateFrame(
         "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
     )
+
     gridOpacityBox:SetSize(50, 20)
     gridOpacityBox:SetPoint(
-        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 962, -34
+        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 962, -69
     )
     gridOpacityBox:SetAutoFocus(false)
     gridOpacityBox:SetMaxLetters(3)
@@ -1119,12 +1176,14 @@ local function CreateBarSelector()
         barSelectorSection, "Add Action Bar", 110, 30, 912, -74,
         function()
             local barID, reason = ns.AddBar()
+
             if not barID then
                 if reason == "combat" then
                     print("|cff7fd5ffMythInc Action Bars:|r Cannot create an action bar during combat.")
                 end
                 return
             end
+
             SelectBar(barID)
         end
     )
@@ -1274,6 +1333,7 @@ local function CreateGeneralHost()
     generalHost = CreateFrame("Frame", nil, panel)
     generalHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     generalHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
+
     generalPage = ns.CreateGeneralConfigPage(generalHost)
     generalPage:SetAllPoints(generalHost)
     generalHost:Hide()
@@ -1283,6 +1343,7 @@ local function CreateProfilesHost()
     profilesHost = CreateFrame("Frame", nil, panel)
     profilesHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     profilesHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
+
     profilesPage = ns.CreateProfilesConfigPage(profilesHost)
     profilesPage:SetAllPoints(profilesHost)
     profilesHost:Hide()
@@ -1305,10 +1366,12 @@ local function CreateBottomActions()
                 print("|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat.")
                 return
             end
+
             if not ns.CanRevertConfigChanges() then
                 print("|cff7fd5ffMythInc Action Bars:|r There is no saved state to revert to.")
                 return
             end
+
             ShowRevertConfirmation()
         end
     )
@@ -1323,10 +1386,12 @@ local function CreateBottomActions()
         function()
             local settings = GetSelectedSettings()
             if not settings or settings.source ~= "custom" then return end
+
             if InCombatLockdown() then
                 print("|cff7fd5ffMythInc Action Bars:|r Cannot delete an action bar during combat.")
                 return
             end
+
             ShowDeleteBarConfirmation(selectedBarID, settings.name)
         end
     )
@@ -1339,6 +1404,7 @@ local function CreateBottomActions()
                 print("|cff7fd5ffMythInc Action Bars:|r The active profile cannot be reset during combat.")
                 return
             end
+
             ShowResetAllConfirmation()
         end
     )
@@ -1350,6 +1416,7 @@ local function CreateConfigPanel()
     panel = CreateFrame(
         "Frame", "MythIncActionBarsConfig", UIParent, "BackdropTemplate"
     )
+
     table.insert(UISpecialFrames, "MythIncActionBarsConfig")
 
     panel:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -1406,6 +1473,7 @@ local function CreateConfigPanel()
 
         if ns.HasConfigChanges and ns.HasConfigChanges() then
             suppressNextSessionStart = true
+
             C_Timer.After(0, function()
                 if not panel:IsShown() then panel:Show() end
                 ShowUnappliedChangesDialog()
@@ -1430,6 +1498,7 @@ SlashCmdList.MYTHINCACTIONBARS = ns.ToggleConfig
 function ns.SelectConfigBar(barID)
     local config = CreateConfigPanel()
     if not config:IsShown() then config:Show() end
+
     isMinimized = false
     config:SetHeight(WINDOW_HEIGHT)
     SetTopLevelMode("Action Bars")

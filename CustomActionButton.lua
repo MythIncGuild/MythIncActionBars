@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 local function GetAssignment(barID, buttonID)
@@ -12,7 +13,6 @@ local function GetAssignment(barID, buttonID)
     end
 
     settings.assignments = settings.assignments or {}
-
     return settings.assignments[buttonID]
 end
 
@@ -34,16 +34,11 @@ local function SetAssignment(barID, buttonID, assignment)
 end
 
 local function GetAppearance(barID)
-    local settings =
-        ns.db
+    local settings = ns.db
         and ns.db.bars
         and ns.db.bars[barID]
 
-    if not settings then
-        return nil
-    end
-
-    return settings.appearance
+    return settings and settings.appearance
 end
 
 local function GetMountSpellID(mountID)
@@ -52,7 +47,6 @@ local function GetMountSpellID(mountID)
     end
 
     local _, spellID = C_MountJournal.GetMountInfoByID(mountID)
-
     return spellID
 end
 
@@ -78,7 +72,6 @@ local function GetAssignmentIcon(assignment)
     if assignment.type == "mount" then
         local _, _, icon =
             C_MountJournal.GetMountInfoByID(assignment.id)
-
         return icon
     end
 
@@ -153,7 +146,10 @@ local function ApplySecureAssignment(button, assignment)
 
         if castName and castName ~= "" then
             button:SetAttribute("type", "macro")
-            button:SetAttribute("macrotext", "/cast " .. castName)
+            button:SetAttribute(
+                "macrotext",
+                "/cast " .. castName
+            )
         end
 
         return
@@ -255,13 +251,30 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
     )
 
     button:SetSize(36, 36)
-
-    -- Preserve activation on release.
     button:SetAttribute("useOnKeyDown", false)
-
-    -- Receive both phases for execution and placement guards.
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:RegisterForDrag("LeftButton")
+
+    function button:ApplyButtonInteraction()
+        if InCombatLockdown() then
+            return
+        end
+
+        local locked, onPress = ns.GetButtonInteractionSettings()
+
+        -- Mouse-down activation would consume items before
+        -- the drag threshold is reached when unlocked.
+        -- Holding Shift uses release activation for safe dragging.
+        self:SetAttribute(
+            "useOnKeyDown",
+            onPress and locked and not IsShiftKeyDown()
+        )
+    end
+
+    ns.InteractionButtons = ns.InteractionButtons or {}
+    ns.InteractionButtons[button] = true
+
+    button:ApplyButtonInteraction()
 
     local background = button:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
@@ -279,26 +292,23 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         button,
         "CooldownFrameTemplate"
     )
-
     cooldown:SetAllPoints(icon)
     button.cooldown = cooldown
 
     local count = button:CreateFontString(
-        nil,
-        "OVERLAY",
-        "NumberFontNormal"
+        nil, "OVERLAY", "NumberFontNormal"
     )
-
-    count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2)
+    count:SetPoint(
+        "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2
+    )
     button.Count = count
 
     local hotKey = button:CreateFontString(
-        nil,
-        "OVERLAY",
-        "NumberFontNormalSmall"
+        nil, "OVERLAY", "NumberFontNormalSmall"
     )
-
-    hotKey:SetPoint("TOPRIGHT", button, "TOPRIGHT", -3, -3)
+    hotKey:SetPoint(
+        "TOPRIGHT", button, "TOPRIGHT", -3, -3
+    )
     hotKey:SetJustifyH("RIGHT")
     hotKey:SetText("")
     button.HotKey = hotKey
@@ -314,20 +324,14 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
     button.Border = border
 
     local dragHighlight = button:CreateTexture(
-        nil,
-        "OVERLAY",
-        nil,
-        6
+        nil, "OVERLAY", nil, 6
     )
-
     dragHighlight:SetPoint(
         "TOPLEFT", button, "TOPLEFT", 2, -2
     )
-
     dragHighlight:SetPoint(
         "BOTTOMRIGHT", button, "BOTTOMRIGHT", -2, 2
     )
-
     dragHighlight:SetColorTexture(0.15, 0.8, 0.78, 0.32)
     dragHighlight:Hide()
     button.DragHighlight = dragHighlight
@@ -508,8 +512,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             if C_MountJournal.GetMountUsabilityByID then
                 local usable =
                     C_MountJournal.GetMountUsabilityByID(
-                        assignment.id,
-                        true
+                        assignment.id, true
                     )
 
                 usableState = usable ~= false
@@ -526,7 +529,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             if C_PetJournal.PetIsSummonable then
                 usableState =
                     C_PetJournal.PetIsSummonable(assignment.id)
-                        ~= false
+                    ~= false
             else
                 usableState = true
             end
@@ -544,7 +547,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             usableState = usable
             resourceState = insufficientPower
-
             ApplyColor()
             return
         end
@@ -555,7 +557,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             usableState = usable
             resourceState = insufficientPower
-
             ApplyColor()
             return
         end
@@ -586,7 +587,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         if spellID then
             local inRange = C_Spell.IsSpellInRange(spellID)
-
             outOfRangeState = inRange == false
             ApplyColor()
             return
@@ -602,8 +602,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             if C_Item.ItemHasRange
                 and C_Item.ItemHasRange(assignment.id)
             then
-                local inRange =
-                    C_Item.IsItemInRange(assignment.id, "target")
+                local inRange = C_Item.IsItemInRange(
+                    assignment.id, "target"
+                )
 
                 outOfRangeState = inRange == false
             else
@@ -623,7 +624,8 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         if assignment and assignment.type == "battlepet" then
             button:SetChecked(
-                C_PetJournal.GetSummonedPetGUID() == assignment.id
+                C_PetJournal.GetSummonedPetGUID()
+                    == assignment.id
             )
 
         elseif assignment and assignment.type == "mount" then
@@ -676,9 +678,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         local assignment
 
         if cursorType == "spell" then
-            -- A mount picked up through spell fallback remains a mount.
-            local mountID =
-                info3
+            local mountID = info3
                 and C_MountJournal.GetMountFromSpell(info3)
 
             assignment = {
@@ -767,7 +767,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         if previous and not PickupAssignment(previous) then
             -- Keep the occupied slot if pickup fails.
-            -- Attempt to restore the incoming action to the cursor.
+            -- Restore the incoming assignment to the cursor.
             PickupAssignment(assignment)
             return false
         end
@@ -800,8 +800,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             cursorHandled = false
 
-            -- Restore attributes between events.
-            -- PreClick guards the trailing placement click.
             if not InCombatLockdown() then
                 ApplySecureAssignment(
                     button,
@@ -825,58 +823,75 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         button:SetAttribute("type", nil)
     end)
 
-    button:HookScript("PreClick", function(self, mouseButton, down)
-        suppressedClick = false
+    button:HookScript(
+        "PreClick",
+        function(self, mouseButton, down)
+            suppressedClick = false
 
-        if InCombatLockdown() then
-            return
+            if InCombatLockdown() then
+                return
+            end
+
+            if down then
+                placementGeneration = placementGeneration + 1
+                suppressRelease = false
+                cursorHandled = false
+
+                if GetCursorInfo() then
+                    suppressedClick = true
+                    self:SetAttribute("type", nil)
+                else
+                    UpdateAssignment()
+                end
+
+                return
+            end
+
+            if suppressRelease or cursorHandled then
+                suppressedClick = true
+                self:SetAttribute("type", nil)
+                return
+            end
+
+            if GetCursorInfo() then
+                suppressedClick = true
+                ArmPlacementGuard()
+                AssignFromCursor()
+
+                -- Never execute the newly placed assignment.
+                self:SetAttribute("type", nil)
+            end
         end
+    )
 
-        if down then
-            -- A new press clears a completed-drag guard.
-            placementGeneration = placementGeneration + 1
-            suppressRelease = false
-            cursorHandled = false
+    button:HookScript(
+        "PostClick",
+        function(self, mouseButton, down)
+            if InCombatLockdown() then
+                return
+            end
 
-            UpdateAssignment()
-        end
-
-        if suppressRelease or cursorHandled then
-            suppressedClick = true
-            self:SetAttribute("type", nil)
-            return
-        end
-
-        if GetCursorInfo() then
-            suppressedClick = true
-
-            ArmPlacementGuard()
-            AssignFromCursor()
-
-            -- Placement must not activate the assigned action.
-            self:SetAttribute("type", nil)
-        end
-    end)
-
-    button:HookScript("PostClick", function(self, mouseButton, down)
-        if suppressedClick or suppressRelease then
             if not down then
                 suppressRelease = false
                 suppressedClick = false
+                cursorHandled = false
                 UpdateAssignment()
+
+            elseif not suppressedClick then
+                UpdateCooldown()
+                UpdateCheckedState()
             end
-
-            return
         end
-
-        -- Secure attributes execute the action.
-        -- PostClick only refreshes its visual state.
-        UpdateCooldown()
-        UpdateCheckedState()
-    end)
+    )
 
     button:SetScript("OnDragStart", function()
         if InCombatLockdown() or GetCursorInfo() then
+            return
+        end
+
+        local locked = ns.GetButtonInteractionSettings()
+
+        if locked and not IsShiftKeyDown() then
             return
         end
 
@@ -935,7 +950,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
             if petName then
                 GameTooltip:SetText(petName)
-                GameTooltip:AddLine("Battle Pet", 0.7, 0.7, 0.7)
+                GameTooltip:AddLine(
+                    "Battle Pet", 0.7, 0.7, 0.7
+                )
             end
         end
 
@@ -949,16 +966,20 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
     local eventFrame = CreateFrame("Frame")
 
-    eventFrame:RegisterEvent("PLAYER_LOGIN")
-    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-    eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
-    eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
-    eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
-    eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
-    eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
-    eventFrame:RegisterEvent("UPDATE_MACROS")
-    eventFrame:RegisterEvent("PET_JOURNAL_LIST_UPDATE")
-    eventFrame:RegisterEvent("UPDATE_SUMMONPETS_ACTION")
+    for _, event in ipairs({
+        "PLAYER_LOGIN",
+        "PLAYER_REGEN_ENABLED",
+        "PLAYER_TARGET_CHANGED",
+        "SPELL_UPDATE_COOLDOWN",
+        "SPELL_UPDATE_CHARGES",
+        "BAG_UPDATE_COOLDOWN",
+        "BAG_UPDATE_DELAYED",
+        "UPDATE_MACROS",
+        "PET_JOURNAL_LIST_UPDATE",
+        "UPDATE_SUMMONPETS_ACTION",
+    }) do
+        eventFrame:RegisterEvent(event)
+    end
 
     eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_ENABLED" then
@@ -1011,7 +1032,8 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             return
         end
 
-        elapsedSinceStateUpdate = elapsedSinceStateUpdate + elapsed
+        elapsedSinceStateUpdate =
+            elapsedSinceStateUpdate + elapsed
 
         if elapsedSinceStateUpdate < 0.2 then
             return
@@ -1026,6 +1048,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
     button.UpdateAssignment = UpdateAssignment
     button.RefreshVisualState = UpdateVisualState
+
     button.barID = barID
     button.buttonID = buttonID
 
