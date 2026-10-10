@@ -1,4 +1,3 @@
-
 local addonName, ns = ...
 
 local function GetAssignment(barID, buttonID)
@@ -7,10 +6,7 @@ local function GetAssignment(barID, buttonID)
     end
 
     local settings = ns.db.bars[barID]
-
-    if not settings then
-        return nil
-    end
+    if not settings then return nil end
 
     settings.assignments = settings.assignments or {}
     return settings.assignments[buttonID]
@@ -22,37 +18,79 @@ local function SetAssignment(barID, buttonID, assignment)
     end
 
     local settings = ns.db.bars[barID]
-
-    if not settings then
-        return false
-    end
+    if not settings then return false end
 
     settings.assignments = settings.assignments or {}
     settings.assignments[buttonID] = assignment
-
     return true
 end
 
 local function GetAppearance(barID)
-    local settings = ns.db
-        and ns.db.bars
-        and ns.db.bars[barID]
+    local settings =
+        ns.db and ns.db.bars and ns.db.bars[barID]
 
     return settings and settings.appearance
 end
 
 local function GetMountSpellID(mountID)
-    if not mountID then
-        return nil
-    end
+    if not mountID then return nil end
 
-    local _, spellID = C_MountJournal.GetMountInfoByID(mountID)
+    local _, spellID =
+        C_MountJournal.GetMountInfoByID(mountID)
+
     return spellID
 end
 
-local function GetAssignmentIcon(assignment)
-    if not assignment then
+local function GetFlyoutSpellbookEntry(flyoutID)
+    if not C_SpellBook
+        or not C_SpellBook.GetNumSpellBookSkillLines
+        or not C_SpellBook.GetSpellBookSkillLineInfo
+        or not C_SpellBook.GetSpellBookItemInfo
+    then
         return nil
+    end
+
+    local bank = Enum.SpellBookSpellBank.Player
+    local flyoutType = Enum.SpellBookItemType.Flyout
+
+    for lineIndex = 1,
+        C_SpellBook.GetNumSpellBookSkillLines()
+    do
+        local line =
+            C_SpellBook.GetSpellBookSkillLineInfo(lineIndex)
+
+        if line then
+            local first = (line.itemIndexOffset or 0) + 1
+            local last =
+                first + (line.numSpellBookItems or 0) - 1
+
+            for slot = first, last do
+                local info =
+                    C_SpellBook.GetSpellBookItemInfo(
+                        slot, bank
+                    )
+
+                if info
+                    and info.itemType == flyoutType
+                    and info.actionID == flyoutID
+                then
+                    return slot, bank, info.iconID
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function GetAssignmentIcon(assignment)
+    if not assignment then return nil end
+
+    if assignment.type == "flyout" then
+        local _, _, iconID =
+            GetFlyoutSpellbookEntry(assignment.id)
+
+        return iconID or 134400
     end
 
     if assignment.type == "spell" then
@@ -78,7 +116,6 @@ local function GetAssignmentIcon(assignment)
     if assignment.type == "battlepet" then
         local _, _, _, _, _, _, _, _, icon =
             C_PetJournal.GetPetInfoByPetID(assignment.id)
-
         return icon
     end
 
@@ -86,9 +123,7 @@ local function GetAssignmentIcon(assignment)
 end
 
 local function GetAssignmentSpellID(assignment)
-    if not assignment then
-        return nil
-    end
+    if not assignment then return nil end
 
     if assignment.type == "spell" then
         return assignment.id
@@ -112,7 +147,11 @@ local function ApplySecureAssignment(button, assignment)
     button:SetAttribute("macro", nil)
     button:SetAttribute("macrotext", nil)
 
-    if not assignment then
+    if not assignment then return end
+
+    if assignment.type == "flyout" then
+        button:SetAttribute("type", "flyout")
+        button:SetAttribute("spell", assignment.id)
         return
     end
 
@@ -147,8 +186,7 @@ local function ApplySecureAssignment(button, assignment)
         if castName and castName ~= "" then
             button:SetAttribute("type", "macro")
             button:SetAttribute(
-                "macrotext",
-                "/cast " .. castName
+                "macrotext", "/cast " .. castName
             )
         end
 
@@ -158,8 +196,7 @@ local function ApplySecureAssignment(button, assignment)
     if assignment.type == "battlepet" then
         button:SetAttribute("type", "macro")
         button:SetAttribute(
-            "macrotext",
-            "/summonpet " .. assignment.id
+            "macrotext", "/summonpet " .. assignment.id
         )
     end
 end
@@ -171,10 +208,13 @@ local function FindMountDisplayIndex(mountID)
         return nil
     end
 
-    local count = C_MountJournal.GetNumDisplayedMounts()
+    local count =
+        C_MountJournal.GetNumDisplayedMounts()
 
     for index = 1, count do
-        if C_MountJournal.GetDisplayedMountID(index) == mountID then
+        if C_MountJournal.GetDisplayedMountID(index)
+            == mountID
+        then
             return index
         end
     end
@@ -182,14 +222,22 @@ local function FindMountDisplayIndex(mountID)
     return nil
 end
 
--- Used by both dragging and occupied-slot swapping.
--- The stored assignment is removed only after pickup succeeds.
 local function PickupAssignment(assignment)
     if not assignment or GetCursorInfo() then
         return false
     end
 
-    if assignment.type == "spell" then
+    if assignment.type == "flyout" then
+        local slot, bank =
+            GetFlyoutSpellbookEntry(assignment.id)
+
+        if slot and C_SpellBook.PickupSpellBookItem then
+            C_SpellBook.PickupSpellBookItem(slot, bank)
+        elseif slot and PickupSpellBookItem then
+            PickupSpellBookItem(slot, bank)
+        end
+
+    elseif assignment.type == "spell" then
         C_Spell.PickupSpell(assignment.id)
 
     elseif assignment.type == "item" then
@@ -210,7 +258,8 @@ local function PickupAssignment(assignment)
         end
 
         if not displayIndex then
-            displayIndex = FindMountDisplayIndex(assignment.id)
+            displayIndex =
+                FindMountDisplayIndex(assignment.id)
         end
 
         if displayIndex then
@@ -221,13 +270,11 @@ local function PickupAssignment(assignment)
             end
         end
 
-        -- Preserve the original spell fallback.
         if not GetCursorInfo() then
-            local spellID = GetMountSpellID(assignment.id)
+            local spellID =
+                GetMountSpellID(assignment.id)
 
-            if not spellID then
-                return false
-            end
+            if not spellID then return false end
 
             C_Spell.PickupSpell(spellID)
         end
@@ -242,41 +289,47 @@ local function PickupAssignment(assignment)
     return GetCursorInfo() ~= nil
 end
 
-function ns.CreateCustomActionButton(parent, name, barID, buttonID)
+function ns.CreateCustomActionButton(
+    parent, name, barID, buttonID
+)
     local button = CreateFrame(
         "CheckButton",
         name,
         parent,
-        "SecureActionButtonTemplate"
+        "SecureActionButtonTemplate,SecureHandlerStateTemplate"
     )
 
     button:SetSize(36, 36)
+
+    ns.InitializeButtonFlyout(button, function()
+        local assignment = GetAssignment(barID, buttonID)
+
+        return assignment and assignment.type,
+            assignment and assignment.id
+    end)
+
     button:SetAttribute("useOnKeyDown", false)
     button:RegisterForClicks("AnyDown", "AnyUp")
-    button:RegisterForDrag("LeftButton")
 
-    function button:ApplyButtonInteraction()
-        if InCombatLockdown() then
-            return
-        end
+    button.ApplyButtonInteraction = function(self)
+        if InCombatLockdown() then return end
 
-        local locked, onPress = ns.GetButtonInteractionSettings()
+        local locked, onPress =
+            ns.GetButtonInteractionSettings()
 
-        -- Mouse-down activation would consume items before
-        -- the drag threshold is reached when unlocked.
-        -- Holding Shift uses release activation for safe dragging.
         self:SetAttribute(
             "useOnKeyDown",
             onPress and locked and not IsShiftKeyDown()
         )
     end
 
-    ns.InteractionButtons = ns.InteractionButtons or {}
     ns.InteractionButtons[button] = true
-
     button:ApplyButtonInteraction()
+    button:RegisterForDrag("LeftButton")
 
-    local background = button:CreateTexture(nil, "BACKGROUND")
+    local background =
+        button:CreateTexture(nil, "BACKGROUND")
+
     background:SetAllPoints()
     background:SetColorTexture(0.08, 0.08, 0.08, 0.85)
     button.Background = background
@@ -323,9 +376,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
     border:SetAtlas("UI-HUD-ActionBar-IconFrame")
     button.Border = border
 
-    local dragHighlight = button:CreateTexture(
-        nil, "OVERLAY", nil, 6
-    )
+    local dragHighlight =
+        button:CreateTexture(nil, "OVERLAY", nil, 6)
+
     dragHighlight:SetPoint(
         "TOPLEFT", button, "TOPLEFT", 2, -2
     )
@@ -351,6 +404,7 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             or cursorType == "action"
             or cursorType == "mount"
             or cursorType == "battlepet"
+            or cursorType == "flyout"
 
         ns.SetDragHighlight(button, validCursor)
     end
@@ -376,7 +430,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         if rangeColoring and outOfRangeState then
             icon:SetVertexColor(1, 0.25, 0.25)
-
         elseif usabilityColoring then
             if usableState then
                 icon:SetVertexColor(1, 1, 1)
@@ -385,7 +438,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             else
                 icon:SetVertexColor(0.4, 0.4, 0.4)
             end
-
         else
             icon:SetVertexColor(1, 1, 1)
         end
@@ -421,7 +473,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         if assignment.type == "battlepet" then
             if C_PetJournal.GetPetCooldownByGUID then
                 local startTime, duration, enabled =
-                    C_PetJournal.GetPetCooldownByGUID(assignment.id)
+                    C_PetJournal.GetPetCooldownByGUID(
+                        assignment.id
+                    )
 
                 if startTime
                     and duration
@@ -447,7 +501,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
                 C_Spell.GetSpellCooldownDuration(spellID)
 
             if duration then
-                cooldown:SetCooldownFromDurationObject(duration)
+                cooldown:SetCooldownFromDurationObject(
+                    duration
+                )
             else
                 cooldown:Clear()
             end
@@ -484,7 +540,8 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         end
 
         if assignment.type == "item" then
-            local quantity = C_Item.GetItemCount(assignment.id)
+            local quantity =
+                C_Item.GetItemCount(assignment.id)
 
             if quantity and quantity > 1 then
                 count:SetText(quantity)
@@ -514,7 +571,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
                     C_MountJournal.GetMountUsabilityByID(
                         assignment.id, true
                     )
-
                 usableState = usable ~= false
             else
                 usableState = true
@@ -528,8 +584,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         if assignment.type == "battlepet" then
             if C_PetJournal.PetIsSummonable then
                 usableState =
-                    C_PetJournal.PetIsSummonable(assignment.id)
-                    ~= false
+                    C_PetJournal.PetIsSummonable(
+                        assignment.id
+                    ) ~= false
             else
                 usableState = true
             end
@@ -586,7 +643,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         local spellID = GetAssignmentSpellID(assignment)
 
         if spellID then
-            local inRange = C_Spell.IsSpellInRange(spellID)
+            local inRange =
+                C_Spell.IsSpellInRange(spellID)
+
             outOfRangeState = inRange == false
             ApplyColor()
             return
@@ -602,10 +661,10 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             if C_Item.ItemHasRange
                 and C_Item.ItemHasRange(assignment.id)
             then
-                local inRange = C_Item.IsItemInRange(
-                    assignment.id, "target"
-                )
-
+                local inRange =
+                    C_Item.IsItemInRange(
+                        assignment.id, "target"
+                    )
                 outOfRangeState = inRange == false
             else
                 outOfRangeState = false
@@ -622,18 +681,23 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
     local function UpdateCheckedState()
         local assignment = GetAssignment(barID, buttonID)
 
-        if assignment and assignment.type == "battlepet" then
+        if assignment
+            and assignment.type == "battlepet"
+        then
             button:SetChecked(
                 C_PetJournal.GetSummonedPetGUID()
                     == assignment.id
             )
 
-        elseif assignment and assignment.type == "mount" then
+        elseif assignment
+            and assignment.type == "mount"
+        then
             local _, _, _, active =
-                C_MountJournal.GetMountInfoByID(assignment.id)
+                C_MountJournal.GetMountInfoByID(
+                    assignment.id
+                )
 
             button:SetChecked(active == true)
-
         else
             button:SetChecked(false)
         end
@@ -659,6 +723,10 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         ApplySecureAssignment(button, assignment)
 
+        if button.UpdateFlyout then
+            button:UpdateFlyout()
+        end
+
         if suppressRelease then
             button:SetAttribute("type", nil)
         end
@@ -674,11 +742,20 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             return false
         end
 
-        local cursorType, info1, info2, info3 = GetCursorInfo()
+        local cursorType, info1, info2, info3 =
+            GetCursorInfo()
+
         local assignment
 
-        if cursorType == "spell" then
-            local mountID = info3
+        if cursorType == "flyout" then
+            assignment = {
+                type = "flyout",
+                id = info1,
+            }
+
+        elseif cursorType == "spell" then
+            local mountID =
+                info3
                 and C_MountJournal.GetMountFromSpell(info3)
 
             assignment = {
@@ -715,7 +792,13 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             local actionType, actionID, subType =
                 GetActionInfo(info1)
 
-            if actionType == "spell" then
+            if actionType == "flyout" then
+                assignment = {
+                    type = "flyout",
+                    id = actionID,
+                }
+
+            elseif actionType == "spell" then
                 assignment = {
                     type = "spell",
                     id = actionID,
@@ -737,7 +820,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
                 and subType == "MOUNT"
             then
                 local mountID =
-                    C_MountJournal.GetMountFromSpell(actionID)
+                    C_MountJournal.GetMountFromSpell(
+                        actionID
+                    )
 
                 if mountID then
                     assignment = {
@@ -766,13 +851,13 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         ClearCursor()
 
         if previous and not PickupAssignment(previous) then
-            -- Keep the occupied slot if pickup fails.
-            -- Restore the incoming assignment to the cursor.
             PickupAssignment(assignment)
             return false
         end
 
-        if not SetAssignment(barID, buttonID, assignment) then
+        if not SetAssignment(
+            barID, buttonID, assignment
+        ) then
             ClearCursor()
             PickupAssignment(assignment)
             return false
@@ -780,7 +865,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         ns.ClearDragHighlight()
         UpdateAssignment()
-
         return true
     end
 
@@ -790,7 +874,6 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         placementGeneration = placementGeneration + 1
 
         local generation = placementGeneration
-
         button:SetAttribute("type", nil)
 
         C_Timer.After(0, function()
@@ -819,77 +902,78 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         ArmPlacementGuard()
         AssignFromCursor()
-
         button:SetAttribute("type", nil)
     end)
 
-    button:HookScript(
-        "PreClick",
-        function(self, mouseButton, down)
-            suppressedClick = false
+    button:HookScript("PreClick", function(
+        self, mouseButton, down
+    )
+        suppressedClick = false
+        if InCombatLockdown() then return end
 
-            if InCombatLockdown() then
-                return
-            end
-
-            if down then
-                placementGeneration = placementGeneration + 1
-                suppressRelease = false
-                cursorHandled = false
-
-                if GetCursorInfo() then
-                    suppressedClick = true
-                    self:SetAttribute("type", nil)
-                else
-                    UpdateAssignment()
-                end
-
-                return
-            end
-
-            if suppressRelease or cursorHandled then
-                suppressedClick = true
-                self:SetAttribute("type", nil)
-                return
-            end
+        if down then
+            placementGeneration = placementGeneration + 1
+            suppressRelease = false
+            cursorHandled = false
 
             if GetCursorInfo() then
                 suppressedClick = true
-                ArmPlacementGuard()
-                AssignFromCursor()
-
-                -- Never execute the newly placed assignment.
                 self:SetAttribute("type", nil)
-            end
-        end
-    )
-
-    button:HookScript(
-        "PostClick",
-        function(self, mouseButton, down)
-            if InCombatLockdown() then
-                return
-            end
-
-            if not down then
-                suppressRelease = false
-                suppressedClick = false
-                cursorHandled = false
+            else
                 UpdateAssignment()
-
-            elseif not suppressedClick then
-                UpdateCooldown()
-                UpdateCheckedState()
             end
+
+            return
         end
+
+        if suppressRelease or cursorHandled then
+            suppressedClick = true
+            self:SetAttribute("type", nil)
+            return
+        end
+
+        if GetCursorInfo() then
+            suppressedClick = true
+            ArmPlacementGuard()
+            AssignFromCursor()
+            self:SetAttribute("type", nil)
+        end
+    end)
+
+    button:HookScript("PostClick", function(
+        self, mouseButton, down
     )
+        if InCombatLockdown() then return end
+
+        if not down then
+            suppressRelease = false
+            suppressedClick = false
+            cursorHandled = false
+            UpdateAssignment()
+        elseif not suppressedClick then
+            UpdateCooldown()
+            UpdateCheckedState()
+        end
+
+        local assignment = GetAssignment(barID, buttonID)
+
+        if ns.CloseMIABFlyouts
+            and (
+                not assignment
+                or assignment.type ~= "flyout"
+            )
+        then
+            ns.CloseMIABFlyouts()
+        end
+    end)
 
     button:SetScript("OnDragStart", function()
         if InCombatLockdown() or GetCursorInfo() then
             return
         end
 
-        local locked = ns.GetButtonInteractionSettings()
+        local locked =
+            ns.GetButtonInteractionSettings()
 
         if locked and not IsShiftKeyDown() then
             return
@@ -912,14 +996,22 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
         UpdateDragHighlight()
 
         local assignment = GetAssignment(barID, buttonID)
-
         if not assignment then
             return
         end
 
         GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
 
-        if assignment.type == "spell" then
+        if assignment.type == "flyout" then
+            local name =
+                GetFlyoutInfo
+                and GetFlyoutInfo(assignment.id)
+
+            if name then
+                GameTooltip:SetText(name)
+            end
+
+        elseif assignment.type == "spell" then
             GameTooltip:SetSpellByID(assignment.id)
 
         elseif assignment.type == "item" then
@@ -934,7 +1026,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         elseif assignment.type == "mount" then
             local mountName, spellID =
-                C_MountJournal.GetMountInfoByID(assignment.id)
+                C_MountJournal.GetMountInfoByID(
+                    assignment.id
+                )
 
             if spellID then
                 GameTooltip:SetSpellByID(spellID)
@@ -944,7 +1038,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
         elseif assignment.type == "battlepet" then
             local _, customName, _, _, _, _, _, speciesName =
-                C_PetJournal.GetPetInfoByPetID(assignment.id)
+                C_PetJournal.GetPetInfoByPetID(
+                    assignment.id
+                )
 
             local petName = customName or speciesName
 
@@ -965,21 +1061,17 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
     end)
 
     local eventFrame = CreateFrame("Frame")
-
-    for _, event in ipairs({
-        "PLAYER_LOGIN",
-        "PLAYER_REGEN_ENABLED",
-        "PLAYER_TARGET_CHANGED",
-        "SPELL_UPDATE_COOLDOWN",
-        "SPELL_UPDATE_CHARGES",
-        "BAG_UPDATE_COOLDOWN",
-        "BAG_UPDATE_DELAYED",
-        "UPDATE_MACROS",
-        "PET_JOURNAL_LIST_UPDATE",
-        "UPDATE_SUMMONPETS_ACTION",
-    }) do
-        eventFrame:RegisterEvent(event)
-    end
+    eventFrame:RegisterEvent("PLAYER_LOGIN")
+    eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+    eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
+    eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
+    eventFrame:RegisterEvent("BAG_UPDATE_COOLDOWN")
+    eventFrame:RegisterEvent("BAG_UPDATE_DELAYED")
+    eventFrame:RegisterEvent("SPELLS_CHANGED")
+    eventFrame:RegisterEvent("UPDATE_MACROS")
+    eventFrame:RegisterEvent("PET_JOURNAL_LIST_UPDATE")
+    eventFrame:RegisterEvent("UPDATE_SUMMONPETS_ACTION")
 
     eventFrame:SetScript("OnEvent", function(_, event)
         if event == "PLAYER_REGEN_ENABLED" then
@@ -987,12 +1079,12 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
             suppressRelease = false
             suppressedClick = false
             cursorHandled = false
-
             UpdateAssignment()
             return
         end
 
         if event == "UPDATE_MACROS"
+            or event == "SPELLS_CHANGED"
             or event == "PET_JOURNAL_LIST_UPDATE"
             or event == "UPDATE_SUMMONPETS_ACTION"
         then
@@ -1048,11 +1140,9 @@ function ns.CreateCustomActionButton(parent, name, barID, buttonID)
 
     button.UpdateAssignment = UpdateAssignment
     button.RefreshVisualState = UpdateVisualState
-
     button.barID = barID
     button.buttonID = buttonID
 
     UpdateAssignment()
-
     return button
 end

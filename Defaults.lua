@@ -24,7 +24,6 @@ function ns.CreateDefaultBarSettings(
         name = "Bar " .. barID,
 
         enabled = enabled and true or false,
-
         source = source,
 
         buttonCount = 12,
@@ -56,6 +55,10 @@ function ns.CreateDefaultBarSettings(
             desaturateUnusable = false,
             rangeColoring = true,
             usabilityColoring = true,
+
+            -- Direction for spell flyout popups.
+            -- Valid values: UP, DOWN, LEFT, RIGHT.
+            flyoutDirection = "UP",
         },
 
         visibility = {

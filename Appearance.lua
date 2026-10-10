@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 local VALID_KEYBIND_POSITIONS = {
@@ -6,6 +7,15 @@ local VALID_KEYBIND_POSITIONS = {
     BOTTOMRIGHT = true,
     BOTTOMLEFT = true,
 }
+
+local VALID_FLYOUT_DIRECTIONS = {
+    UP = true,
+    DOWN = true,
+    LEFT = true,
+    RIGHT = true,
+}
+
+local pendingFlyoutButtons = setmetatable({}, { __mode = "k" })
 
 local function EnsureAppearance(settings)
     settings.appearance = settings.appearance or {}
@@ -42,6 +52,10 @@ local function EnsureAppearance(settings)
     end
     if appearance.rangeColoring == nil then appearance.rangeColoring = true end
     if appearance.usabilityColoring == nil then appearance.usabilityColoring = true end
+
+    if not VALID_FLYOUT_DIRECTIONS[appearance.flyoutDirection] then
+        appearance.flyoutDirection = "UP"
+    end
 
     return appearance
 end
@@ -89,7 +103,6 @@ end
 local function AnchorHotKey(hotKey, position)
     hotKey:ClearAllPoints()
     local parent = hotKey:GetParent()
-
     if position == "TOPLEFT" then
         hotKey:SetPoint("TOPLEFT", parent, "TOPLEFT", 3, -3)
         hotKey:SetJustifyH("LEFT")
@@ -114,7 +127,6 @@ local function ApplyKeybindText(button, appearance)
     hotKey:SetFont(
         fontPath, tonumber(appearance.keybindTextSize) or 12, "OUTLINE"
     )
-
     local color = appearance.keybindColor
     hotKey:SetTextColor(
         color.r or 1, color.g or 1, color.b or 1, color.a or 1
@@ -123,16 +135,69 @@ local function ApplyKeybindText(button, appearance)
     hotKey:SetShown(appearance.showKeybind ~= false)
 end
 
+local function ApplyFlyoutDirection(button, appearance)
+    local direction = appearance.flyoutDirection or "UP"
+
+    if not VALID_FLYOUT_DIRECTIONS[direction] then
+        direction = "UP"
+    end
+
+    if InCombatLockdown() then
+        pendingFlyoutButtons[button] = direction
+        return
+    end
+
+    pendingFlyoutButtons[button] = nil
+
+    if button:GetAttribute("flyoutDirection") ~= direction then
+        button:SetAttribute("flyoutDirection", direction)
+    end
+
+    -- The button files initialize popup support.
+    -- Only update popup presentation when the button supports it.
+    if button.SetPopupDirection then
+        button:SetPopupDirection(direction)
+    end
+
+    if button.UpdateFlyout then
+        button:UpdateFlyout()
+    end
+end
+
+local flyoutEvents = CreateFrame("Frame")
+flyoutEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+flyoutEvents:SetScript("OnEvent", function()
+    if InCombatLockdown() then return end
+
+    for button, direction in pairs(pendingFlyoutButtons) do
+        pendingFlyoutButtons[button] = nil
+
+        if button:GetAttribute("flyoutDirection") ~= direction then
+            button:SetAttribute("flyoutDirection", direction)
+        end
+
+        if button.SetPopupDirection then
+            button:SetPopupDirection(direction)
+        end
+
+        if button.UpdateFlyout then
+            button:UpdateFlyout()
+        end
+    end
+end)
+
 function ns.ApplyButtonAppearance(button, settings)
     if not button or not settings then return end
 
     local appearance = EnsureAppearance(settings)
+
     ApplyIconZoom(button, appearance)
     ApplyBorder(button, appearance)
     ApplyBackground(button, appearance)
     ApplyCooldown(button, appearance)
     ApplyCountText(button, appearance)
     ApplyKeybindText(button, appearance)
+    ApplyFlyoutDirection(button, appearance)
 
     if button.RefreshVisualState then
         button.RefreshVisualState()
@@ -144,6 +209,7 @@ function ns.ApplyBarAppearance(barID)
 
     local settings = ns.db.bars[barID]
     local bar = ns.Bars and ns.Bars[barID]
+
     if not settings or not bar then return end
 
     EnsureAppearance(settings)
@@ -207,6 +273,7 @@ function ns.GetBarFadeSettings(barID)
     local target = ns.SpecialConfigTargets and ns.SpecialConfigTargets[barID]
     local settings = target and target.GetSettings()
         or (ns.db and ns.db.bars and ns.db.bars[barID])
+
     if not settings then return end
 
     settings.visibility = settings.visibility or {}
@@ -225,6 +292,7 @@ end
 
 local function FadeFrames(barID)
     local names = SPECIAL_FADE_FRAMES[barID]
+
     if not names then
         local bar = ns.Bars and ns.Bars[barID]
         return bar and { bar } or {}
@@ -234,6 +302,7 @@ local function FadeFrames(barID)
     for _, name in ipairs(names) do
         if _G[name] then frames[#frames + 1] = _G[name] end
     end
+
     return frames
 end
 
@@ -281,6 +350,7 @@ local function UpdateFade(
     )
 
     local state = fadeStates[bar]
+
     if not state then
         state = { alpha = bar:GetAlpha() }
         fadeStates[bar] = state
@@ -290,6 +360,7 @@ local function UpdateFade(
         state.alpha = target
     else
         local step = elapsed / 0.15
+
         if state.alpha < target then
             state.alpha = math.min(target, state.alpha + step)
         elseif state.alpha > target then
@@ -330,9 +401,16 @@ function ns.SetBarFadeOption(barID, option, value)
 
     if option == "opacity" or option == "fadedOpacity" then
         value = tonumber(value)
-        if not value or value ~= value then return false, "invalid" end
+
+        if not value or value ~= value then
+            return false, "invalid"
+        end
+
         visibility[option] = ClampOpacity(value, 1)
-    elseif option == "fadeOnMouseover" or option == "showFullyInCombat" then
+
+    elseif option == "fadeOnMouseover"
+        or option == "showFullyInCombat"
+    then
         visibility[option] = value and true or false
     else
         return false, "invalid"
@@ -340,6 +418,7 @@ function ns.SetBarFadeOption(barID, option, value)
 
     ns.GetBarFadeSettings(barID)
     ns.RefreshBarFade(barID, true)
+
     return true
 end
 
@@ -348,18 +427,22 @@ local fadeElapsed = 0
 
 fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     fadeElapsed = fadeElapsed + elapsed
+
     if fadeElapsed < 0.05 then return end
 
     local step = fadeElapsed
     fadeElapsed = 0
+
     if not ns.db or not ns.db.bars then return end
 
     local editing = EditingBars()
 
     for barID, bar in pairs(ns.Bars or {}) do
         local settings = ns.db.bars[barID]
+
         if settings and settings.enabled and bar:IsShown() then
             local visibility = ns.GetBarFadeSettings(barID)
+
             UpdateFade(
                 barID, bar, { bar }, visibility, editing, step, false
             )
@@ -369,7 +452,9 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     local active = {}
 
     for barID in pairs(SPECIAL_FADE_FRAMES) do
-        local target = ns.SpecialConfigTargets and ns.SpecialConfigTargets[barID]
+        local target = ns.SpecialConfigTargets
+            and ns.SpecialConfigTargets[barID]
+
         local settings = target and target.GetSettings()
 
         if settings and settings.enabled then
@@ -384,7 +469,8 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
                 end
 
                 UpdateFade(
-                    barID, bar, frames, visibility, editing, step, false
+                    barID, bar, frames, visibility,
+                    editing, step, false
                 )
             end
         end
