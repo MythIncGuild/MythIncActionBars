@@ -22,7 +22,6 @@ local confirmationMessage
 local confirmationButtons = {}
 local confirmationActions = {}
 local confirmationButtonCount = 0
-
 local allowConfigClose = false
 local suppressNextSessionStart = false
 
@@ -34,12 +33,14 @@ local generalTab
 local actionBarsTab
 local profilesTab
 local actionBarSettingsSection
+local gridSpacingBox
+local gridSpacingLabel
+local alignmentGridCheckbox
 local hideBlizzardCheckbox
 local barSelectorSection
 local barSelectorViewport
 local barSelectorOffset = 0
 local categoryFrame
-
 local renameDialog
 local nameControl
 local unlockButton
@@ -52,12 +53,10 @@ local appearancePage
 local visibilityPage
 local actionPagesPage
 local keybindsPage
-
 local generalHost
 local generalPage
 local profilesHost
 local profilesPage
-
 local resetButton
 local deleteButton
 local addButton
@@ -71,14 +70,12 @@ local isMinimized = false
 local WINDOW_WIDTH = 1080
 local WINDOW_HEIGHT = 720
 local MINIMIZED_HEIGHT = 64
-
 local BAR_BUTTON_WIDTH = 124
 local BAR_BUTTON_HEIGHT = 30
 local BAR_BUTTON_SPACING = 6
 local BAR_COLUMNS = 6
 local BAR_VISIBLE_ROWS = 2
 local BAR_VISIBLE_COUNT = BAR_COLUMNS * BAR_VISIBLE_ROWS
-
 local SELECTOR_TOP = -170
 local SELECTOR_TITLE_HEIGHT = 38
 local SELECTOR_BOTTOM_PADDING = 12
@@ -90,9 +87,7 @@ local CATEGORY_NAMES = {
 
 local function SetFont(fontString, size, muted)
     fontString:SetFont(font, size, "OUTLINE")
-    fontString:SetTextColor(
-        unpack(muted and colors.muted or colors.text)
-    )
+    fontString:SetTextColor(unpack(muted and colors.muted or colors.text))
 end
 
 local function GetTarget(barID)
@@ -102,14 +97,12 @@ end
 
 local function GetConfigBarIDs()
     local ids = ns.GetBarIDs()
-
     for _, id in ipairs({
         "petBar", "stanceBar", "extraAction",
         "zoneAbility", "vehicleControls",
     }) do
         if GetTarget(id) then ids[#ids + 1] = id end
     end
-
     return ids
 end
 
@@ -128,13 +121,11 @@ end
 
 local function IsSelectedUnlocked()
     local target = GetTarget()
-    return target and target.IsUnlocked()
-        or ns.IsBarUnlocked(selectedBarID)
+    return target and target.IsUnlocked() or ns.IsBarUnlocked(selectedBarID)
 end
 
 local function UnlockSelected(value)
     local target = GetTarget()
-
     if target then
         if not InCombatLockdown() then target.SetUnlocked(value) end
     else
@@ -148,7 +139,6 @@ local function GetFallbackBarID(deletedBarID)
 
     local previous
     local nextID
-
     for _, barID in ipairs(ids) do
         if barID < deletedBarID then
             previous = barID
@@ -157,7 +147,6 @@ local function GetFallbackBarID(deletedBarID)
             break
         end
     end
-
     return previous or nextID or ids[1]
 end
 
@@ -170,14 +159,9 @@ end
 
 local function ClampBarSelectorOffset()
     local maxOffset = math.max(
-        0,
-        math.ceil(#ns.GetBarIDs() / BAR_COLUMNS) - BAR_VISIBLE_ROWS
+        0, math.ceil(#ns.GetBarIDs() / BAR_COLUMNS) - BAR_VISIBLE_ROWS
     )
-
-    barSelectorOffset = math.max(
-        0,
-        math.min(barSelectorOffset, maxOffset)
-    )
+    barSelectorOffset = math.max(0, math.min(barSelectorOffset, maxOffset))
 end
 
 local function EnsureSelectedBarVisible()
@@ -186,28 +170,12 @@ local function EnsureSelectedBarVisible()
         return
     end
 
-    local row = math.floor(
-        (FindSelectedIndex() - 1) / BAR_COLUMNS
-    )
-
-    if row < barSelectorOffset then
-        barSelectorOffset = row
-    elseif row >= barSelectorOffset + BAR_VISIBLE_ROWS then
-        barSelectorOffset = row - BAR_VISIBLE_ROWS + 1
-    end
-
-    ClampBarSelectorOffset()
-end
-
-local function EnsureSelectedBarVisible()
     local row = math.floor((FindSelectedIndex() - 1) / BAR_COLUMNS)
-
     if row < barSelectorOffset then
         barSelectorOffset = row
     elseif row >= barSelectorOffset + BAR_VISIBLE_ROWS then
         barSelectorOffset = row - BAR_VISIBLE_ROWS + 1
     end
-
     ClampBarSelectorOffset()
 end
 
@@ -219,7 +187,6 @@ end
 
 local function RefreshCategoryPage()
     local target = GetTarget()
-
     if target then
         for _, frame in ipairs({
             layoutPage, appearancePage, visibilityPage,
@@ -246,7 +213,6 @@ local function RefreshCategoryPage()
     if appearancePage then
         local showing = selectedCategory == "Appearance"
         appearancePage:SetShown(showing)
-
         if showing then
             if appearancePage.ResetScroll then appearancePage:ResetScroll() end
             if appearancePage.Refresh then appearancePage:Refresh() end
@@ -256,7 +222,6 @@ local function RefreshCategoryPage()
     if visibilityPage then
         local showing = selectedCategory == "Visibility"
         visibilityPage:SetShown(showing)
-
         if showing then
             if visibilityPage.ResetScroll then visibilityPage:ResetScroll() end
             if visibilityPage.Refresh then visibilityPage:Refresh() end
@@ -266,7 +231,6 @@ local function RefreshCategoryPage()
     if actionPagesPage then
         local showing = selectedCategory == "Action Pages"
         actionPagesPage:SetShown(showing)
-
         if showing then
             if actionPagesPage.ResetScroll then actionPagesPage:ResetScroll() end
             if actionPagesPage.Refresh then actionPagesPage:Refresh() end
@@ -276,7 +240,6 @@ local function RefreshCategoryPage()
     if keybindsPage then
         local showing = selectedCategory == "Keybinds"
         keybindsPage:SetShown(showing)
-
         if showing then
             if keybindsPage.ResetScroll then keybindsPage:ResetScroll() end
             if keybindsPage.Refresh then keybindsPage:Refresh() end
@@ -302,14 +265,8 @@ local function RefreshCategoryButtons()
 
     for name, button in pairs(categoryButtons) do
         button:SetSelected(name == selectedCategory)
-
-        if Supported(name) then
-            button:Enable()
-        else
-            button:Disable()
-        end
+        if Supported(name) then button:Enable() else button:Disable() end
     end
-
     RefreshCategoryPage()
 end
 
@@ -319,100 +276,55 @@ local function ClearBarButtons()
 end
 
 local function UpdateDynamicLayout()
-    if not panel
-        or not barSelectorSection
-        or not categoryFrame
-        or not pageHost
-    then
+    if not panel or not barSelectorSection
+        or not categoryFrame or not pageHost then
         return
     end
 
     barSelectorSection:SetHeight(178)
-
-    barSelectorViewport:SetHeight(
-        BAR_VISIBLE_ROWS * SELECTOR_ROW_HEIGHT
-    )
+    barSelectorViewport:SetHeight(BAR_VISIBLE_ROWS * SELECTOR_ROW_HEIGHT)
 
     categoryFrame:ClearAllPoints()
     categoryFrame:SetPoint(
-        "TOPLEFT",
-        panel,
-        "TOPLEFT",
-        22,
-        SELECTOR_TOP - 190
+        "TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 190
     )
 
     pageHost:ClearAllPoints()
     pageHost:SetPoint(
-        "TOPLEFT",
-        panel,
-        "TOPLEFT",
-        22,
-        SELECTOR_TOP - 238
+        "TOPLEFT", panel, "TOPLEFT", 22, SELECTOR_TOP - 238
     )
-    pageHost:SetPoint(
-        "BOTTOMRIGHT",
-        panel,
-        "BOTTOMRIGHT",
-        -22,
-        58
-    )
+    pageHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
 end
 
 local function RefreshBarSelector()
-    if not barSelectorViewport then
-        return
-    end
+    if not barSelectorViewport then return end
 
     ClearBarButtons()
     ClampBarSelectorOffset()
 
-    local function PlaceButton(
-        barID,
-        poolIndex,
-        parent,
-        column,
-        row
-    )
+    local function PlaceButton(barID, poolIndex, parent, column, row)
         local settings = GetConfigSettings(barID)
-
-        if not settings then
-            return
-        end
+        if not settings then return end
 
         local button = barButtonPool[poolIndex]
-
         if not button then
             button = widgets.CreateTabButton(
-                parent,
-                "",
-                BAR_BUTTON_WIDTH,
-                BAR_BUTTON_HEIGHT,
-                0,
-                0,
-                function(self)
-                    SelectBar(self.barID)
-                end
+                parent, "", BAR_BUTTON_WIDTH, BAR_BUTTON_HEIGHT, 0, 0,
+                function(self) SelectBar(self.barID) end
             )
 
             button.enableCheckbox = widgets.CreateCheckButton(
-                button,
-                "",
-                2,
-                -3,
+                button, "", 2, -3,
                 function()
                     local entry = GetConfigSettings(button.barID)
-
                     return entry and entry.enabled or false
                 end,
                 function(value)
                     local target = GetTarget(button.barID)
-
                     if target then
                         if not InCombatLockdown() then
                             target.GetSettings().enabled = value
                             target.Refresh()
-
                             if value and ns.IsMoveModeActive() then
                                 target.SetUnlocked(true)
                             end
@@ -425,110 +337,58 @@ local function RefreshBarSelector()
                     RefreshControls()
                 end
             )
-
             barButtonPool[poolIndex] = button
         end
 
         button.barID = barID
         button:SetParent(parent)
-
         button:ClearAllPoints()
         button:SetPoint(
-            "TOPLEFT",
-            parent,
-            "TOPLEFT",
+            "TOPLEFT", parent, "TOPLEFT",
             column * (BAR_BUTTON_WIDTH + BAR_BUTTON_SPACING),
             -row * SELECTOR_ROW_HEIGHT
         )
 
         local target = GetTarget(barID)
-
-        button:SetText(
-            target and target.name or settings.name
-        )
-
+        button:SetText(target and target.name or settings.name)
         button.label:ClearAllPoints()
-        button.label:SetPoint(
-            "LEFT",
-            button,
-            "LEFT",
-            28,
-            0
-        )
-        button.label:SetPoint(
-            "RIGHT",
-            button,
-            "RIGHT",
-            -4,
-            0
-        )
+        button.label:SetPoint("LEFT", button, "LEFT", 28, 0)
+        button.label:SetPoint("RIGHT", button, "RIGHT", -4, 0)
         button.label:SetWordWrap(false)
 
         button.enableCheckbox:Refresh()
         button:SetSelected(barID == selectedBarID)
         button:Show()
-
         barButtons[barID] = button
     end
 
     local ids = ns.GetBarIDs()
-
     local first = barSelectorOffset * BAR_COLUMNS + 1
-    local last = math.min(
-        #ids,
-        first + BAR_VISIBLE_COUNT - 1
-    )
+    local last = math.min(#ids, first + BAR_VISIBLE_COUNT - 1)
 
     for index = first, last do
         local visible = index - first
-
         PlaceButton(
-            ids[index],
-            visible + 1,
-            barSelectorViewport,
-            visible % BAR_COLUMNS,
-            math.floor(visible / BAR_COLUMNS)
+            ids[index], visible + 1, barSelectorViewport,
+            visible % BAR_COLUMNS, math.floor(visible / BAR_COLUMNS)
         )
     end
 
-    local specialSelectorViewport =
-        barSelectorSection.SpecialViewport
-
+    local specialSelectorViewport = barSelectorSection.SpecialViewport
     if not specialSelectorViewport then
         widgets.CreateText(
-            barSelectorSection,
-            "SPECIAL BARS",
-            10,
-            12,
-            -112,
-            true
+            barSelectorSection, "SPECIAL BARS", 10, 12, -112, true
         )
 
-        specialSelectorViewport = CreateFrame(
-            "Frame",
-            nil,
-            barSelectorSection
-        )
-
+        specialSelectorViewport = CreateFrame("Frame", nil, barSelectorSection)
         specialSelectorViewport:SetPoint(
-            "TOPLEFT",
-            barSelectorSection,
-            "TOPLEFT",
-            12,
-            -132
+            "TOPLEFT", barSelectorSection, "TOPLEFT", 12, -132
         )
         specialSelectorViewport:SetSize(780, 30)
-
-        barSelectorSection.SpecialViewport =
-            specialSelectorViewport
+        barSelectorSection.SpecialViewport = specialSelectorViewport
 
         widgets.CreateSection(
-            barSelectorSection,
-            "BAR TOOLS",
-            232,
-            134,
-            792,
-            -24
+            barSelectorSection, "BAR TOOLS", 232, 134, 792, -24
         )
 
         local toolPositions = {
@@ -540,39 +400,23 @@ local function RefreshBarSelector()
 
         for _, entry in ipairs(toolPositions) do
             local button = entry[1]
-
             button:SetWidth(100)
             button:ClearAllPoints()
-
             button:SetPoint(
-                "TOPLEFT",
-                barSelectorSection,
-                "TOPLEFT",
-                entry[2],
-                entry[3]
+                "TOPLEFT", barSelectorSection, "TOPLEFT", entry[2], entry[3]
             )
-
-            button:SetFrameLevel(
-                barSelectorSection:GetFrameLevel() + 10
-            )
+            button:SetFrameLevel(barSelectorSection:GetFrameLevel() + 10)
         end
     end
 
     local specialIDs = {
-        "petBar",
-        "stanceBar",
-        "extraAction",
-        "zoneAbility",
-        "vehicleControls",
+        "petBar", "stanceBar", "extraAction", "zoneAbility", "vehicleControls",
     }
 
     for index, id in ipairs(specialIDs) do
         PlaceButton(
-            id,
-            BAR_VISIBLE_COUNT + index,
-            specialSelectorViewport,
-            index - 1,
-            0
+            id, BAR_VISIBLE_COUNT + index,
+            specialSelectorViewport, index - 1, 0
         )
     end
 
@@ -581,6 +425,17 @@ end
 
 RefreshControls = function()
     if hideBlizzardCheckbox then hideBlizzardCheckbox:Refresh() end
+    if alignmentGridCheckbox then alignmentGridCheckbox:Refresh() end
+
+    if gridSpacingBox then
+        local visible = ns.IsAlignmentGridEnabled()
+        gridSpacingBox:SetShown(visible)
+        gridSpacingLabel:SetShown(visible)
+
+        if not gridSpacingBox:HasFocus() then
+            gridSpacingBox:SetText(tostring(ns.GetAlignmentGridSpacing()))
+        end
+    end
 
     local settings = GetSelectedSettings()
     if not settings then return end
@@ -641,7 +496,6 @@ function ns.RefreshConfig()
         EnsureSelectedBarVisible()
         RefreshBarSelector()
     end
-
     RefreshControls()
 end
 
@@ -649,10 +503,8 @@ SelectBar = function(barID)
     if not GetConfigSettings(barID) then return end
 
     local oldBarID = selectedBarID
-
     if not ns.IsMoveModeActive() then
         local oldTarget = GetTarget(oldBarID)
-
         if oldTarget then
             if not InCombatLockdown() then oldTarget.SetUnlocked(false) end
         elseif ns.IsBarUnlocked(oldBarID) then
@@ -668,17 +520,14 @@ end
 
 local function ResetSelectedBar()
     if InCombatLockdown() then return end
-
     local settings = GetSelectedSettings()
     if not settings then return end
 
     local target = GetTarget()
-
     if target then
         for key, value in pairs(target.defaults) do
             if key ~= "enabled" and key ~= "keybinds"
-                and type(value) ~= "table"
-            then
+                and type(value) ~= "table" then
                 settings[key] = value
             end
         end
@@ -792,7 +641,9 @@ SetTopLevelMode = function(mode)
     local showProfileActions = not isMinimized and mode ~= "General"
 
     if generalHost then generalHost:SetShown(showGeneral) end
-    if actionBarSettingsSection then actionBarSettingsSection:SetShown(showActionBars) end
+    if actionBarSettingsSection then
+        actionBarSettingsSection:SetShown(showActionBars)
+    end
     if barSelectorSection then barSelectorSection:SetShown(showActionBars) end
     if categoryFrame then categoryFrame:SetShown(showActionBars) end
     if pageHost then pageHost:SetShown(showActionBars) end
@@ -862,7 +713,9 @@ local function CreateConfirmationDialog()
 
     confirmationTitle = confirmationDialog:CreateFontString(nil, "OVERLAY")
     SetFont(confirmationTitle, 16, false)
-    confirmationTitle:SetPoint("TOPLEFT", confirmationDialog, "TOPLEFT", 22, -20)
+    confirmationTitle:SetPoint(
+        "TOPLEFT", confirmationDialog, "TOPLEFT", 22, -20
+    )
 
     confirmationMessage = confirmationDialog:CreateFontString(nil, "OVERLAY")
     SetFont(confirmationMessage, 11, true)
@@ -875,7 +728,6 @@ local function CreateConfirmationDialog()
 
     for index = 1, 3 do
         local buttonIndex = index
-
         confirmationButtons[index] = widgets.CreateButton(
             confirmationDialog, "", 150, 34, 0, -152,
             function() RunConfirmationAction(buttonIndex) end
@@ -931,7 +783,6 @@ local function ShowConfirmationDialog(options)
     for index = 1, confirmationButtonCount do
         local definition = buttons[index]
         local button = confirmationButtons[index]
-
         button:ClearAllPoints()
         button:SetPoint(
             "TOPLEFT", confirmationDialog, "TOPLEFT", positions[index], -152
@@ -958,7 +809,6 @@ local function ShowDeleteBarConfirmation(barID, barName)
                 text = "Delete",
                 action = function()
                     local success, reason = ns.DeleteBar(barID)
-
                     if not success then
                         if reason == "combat" then
                             print("|cff7fd5ffMythInc Action Bars:|r Cannot delete an action bar during combat.")
@@ -988,7 +838,6 @@ local function ShowRevertConfirmation()
                 action = function()
                     if ns.LockAllBars then ns.LockAllBars() end
                     local success, reason = ns.RevertConfigChanges()
-
                     if not success then
                         if reason == "combat" then
                             print("|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat.")
@@ -1013,7 +862,6 @@ local function ShowResetAllConfirmation()
                 action = function()
                     if ns.LockAllBars then ns.LockAllBars() end
                     local success, reason = ns.ResetActiveProfileToDefaults()
-
                     if not success then
                         if reason == "combat" then
                             print("|cff7fd5ffMythInc Action Bars:|r The active profile cannot be reset during combat.")
@@ -1046,7 +894,6 @@ local function ShowUnappliedChangesDialog()
                 text = "Revert Changes",
                 action = function()
                     local success, reason = ns.RevertConfigChanges()
-
                     if not success then
                         if reason == "combat" then
                             print("|cff7fd5ffMythInc Action Bars:|r Changes cannot be reverted during combat.")
@@ -1108,17 +955,14 @@ local function CreateHeader()
         panel, "General", 110, 28, 180, -48,
         function() SetTopLevelMode("General") end
     )
-
     actionBarsTab = widgets.CreateTabButton(
         panel, "Action Bars", 110, 28, 298, -48,
         function() SetTopLevelMode("Action Bars") end
     )
-
     profilesTab = widgets.CreateTabButton(
         panel, "Profiles", 110, 28, 416, -48,
         function() SetTopLevelMode("Profiles") end
     )
-
     actionBarsTab:SetSelected(true)
 end
 
@@ -1137,6 +981,62 @@ local function CreateActionBarSettingsSection()
             end
         end
     )
+
+    alignmentGridCheckbox = widgets.CreateCheckButton(
+        actionBarSettingsSection, "Show Alignment Grid", 380, -32,
+        function() return ns.IsAlignmentGridEnabled() end,
+        function(value)
+            ns.SetAlignmentGridEnabled(value)
+            RefreshControls()
+        end
+    )
+
+    gridSpacingLabel = widgets.CreateText(
+        actionBarSettingsSection, "Grid spacing (px)", 11, 620, -38
+    )
+
+    gridSpacingBox = CreateFrame(
+        "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
+    )
+    gridSpacingBox:SetSize(58, 20)
+    gridSpacingBox:SetPoint(
+        "TOPLEFT", actionBarSettingsSection, "TOPLEFT", 758, -34
+    )
+    gridSpacingBox:SetAutoFocus(false)
+    gridSpacingBox:SetMaxLetters(3)
+    gridSpacingBox:SetJustifyH("CENTER")
+    gridSpacingBox:SetTextColor(unpack(colors.text))
+
+    local function RestoreGridSpacing()
+        gridSpacingBox:SetText(tostring(ns.GetAlignmentGridSpacing()))
+    end
+
+    local function CommitGridSpacing()
+        ns.SetAlignmentGridSpacing(gridSpacingBox:GetText())
+        RestoreGridSpacing()
+    end
+
+    gridSpacingBox:SetScript("OnEnterPressed", function(self)
+        CommitGridSpacing()
+        self:ClearFocus()
+    end)
+
+    gridSpacingBox:SetScript("OnEscapePressed", function(self)
+        RestoreGridSpacing()
+        self:ClearFocus()
+    end)
+
+    gridSpacingBox:SetScript("OnEditFocusLost", CommitGridSpacing)
+
+    gridSpacingBox:SetScript("OnEditFocusGained", function(self)
+        self:HighlightText()
+    end)
+
+    RestoreGridSpacing()
+
+    local visible = ns.IsAlignmentGridEnabled()
+    gridSpacingBox:SetShown(visible)
+    gridSpacingLabel:SetShown(visible)
 end
 
 local function CreateBarSelector()
@@ -1161,7 +1061,6 @@ local function CreateBarSelector()
         elseif delta > 0 then
             barSelectorOffset = math.max(0, barSelectorOffset - 1)
         end
-
         RefreshBarSelector()
     end)
 
@@ -1169,7 +1068,6 @@ local function CreateBarSelector()
         barSelectorSection, "Add Action Bar", 110, 30, 912, -74,
         function()
             local barID, reason = ns.AddBar()
-
             if not barID then
                 if reason == "combat" then
                     print("|cff7fd5ffMythInc Action Bars:|r Cannot create an action bar during combat.")
@@ -1203,7 +1101,6 @@ local function CreateBarManagementControls()
         barSelectorSection, "Rename Bar", 110, 30, 796, -38,
         function()
             renameBarID = selectedBarID
-
             if not renameDialog then
                 renameDialog = CreateFrame("Frame", nil, panel)
                 renameDialog:SetAllPoints(panel)
@@ -1231,9 +1128,10 @@ local function CreateBarManagementControls()
 
                 local function SaveName()
                     local settings = ns.db.bars[renameBarID]
-                    local value = nameControl.editBox:GetText():match("^%s*(.-)%s*$")
-                    if not settings or value == "" then return end
+                    local value =
+                        nameControl.editBox:GetText():match("^%s*(.-)%s*$")
 
+                    if not settings or value == "" then return end
                     settings.name = value
                     ns.RefreshBarMover(renameBarID)
                     HideRenameDialog()
@@ -1242,9 +1140,16 @@ local function CreateBarManagementControls()
                 end
 
                 nameControl.editBox:SetScript("OnEnterPressed", SaveName)
-                nameControl.editBox:SetScript("OnEscapePressed", HideRenameDialog)
-                widgets.CreateButton(box, "Save", 110, 30, 170, -118, SaveName)
-                widgets.CreateButton(box, "Cancel", 110, 30, 288, -118, HideRenameDialog)
+                nameControl.editBox:SetScript(
+                    "OnEscapePressed", HideRenameDialog
+                )
+
+                widgets.CreateButton(
+                    box, "Save", 110, 30, 170, -118, SaveName
+                )
+                widgets.CreateButton(
+                    box, "Cancel", 110, 30, 288, -118, HideRenameDialog
+                )
             end
 
             nameControl:Refresh()
@@ -1259,6 +1164,7 @@ local function CreateBarManagementControls()
         function()
             local settings = GetSelectedSettings()
             if not settings or not settings.enabled then return end
+
             UnlockSelected(not IsSelectedUnlocked())
             RefreshControls()
         end
@@ -1312,8 +1218,8 @@ local function CreatePageHost()
     specialPage = ns.CreateSpecialConfigPage(pageHost, {
         RefreshConfig = RefreshControls,
     })
-
     specialPage:Hide()
+
     layoutPage:Show()
     appearancePage:Hide()
     visibilityPage:Hide()
@@ -1325,6 +1231,7 @@ local function CreateGeneralHost()
     generalHost = CreateFrame("Frame", nil, panel)
     generalHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     generalHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
+
     generalPage = ns.CreateGeneralConfigPage(generalHost)
     generalPage:SetAllPoints(generalHost)
     generalHost:Hide()
@@ -1334,6 +1241,7 @@ local function CreateProfilesHost()
     profilesHost = CreateFrame("Frame", nil, panel)
     profilesHost:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -96)
     profilesHost:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58)
+
     profilesPage = ns.CreateProfilesConfigPage(profilesHost)
     profilesPage:SetAllPoints(profilesHost)
     profilesHost:Hide()
@@ -1374,7 +1282,6 @@ local function CreateBottomActions()
         function()
             local settings = GetSelectedSettings()
             if not settings or settings.source ~= "custom" then return end
-
             if InCombatLockdown() then
                 print("|cff7fd5ffMythInc Action Bars:|r Cannot delete an action bar during combat.")
                 return
@@ -1436,7 +1343,6 @@ local function CreateConfigPanel()
         end
 
         allowConfigClose = false
-
         if not GetSelectedSettings() then
             selectedBarID = ns.GetBarIDs()[1] or 1
         end
@@ -1472,7 +1378,11 @@ end
 
 function ns.ToggleConfig()
     local config = CreateConfigPanel()
-    if config:IsShown() then RequestCloseConfig() else config:Show() end
+    if config:IsShown() then
+        RequestCloseConfig()
+    else
+        config:Show()
+    end
 end
 
 SLASH_MYTHINCACTIONBARS1 = "/miab"
