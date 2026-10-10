@@ -6,7 +6,7 @@ local defaults = {
 }
 ns.defaults.vehicleControls = defaults
 
-local carrier, button, mover, dialog
+local carrier, button, mover
 local unlocked, dragging, pending, queued = false, false, false, false
 local bindingOwner = CreateFrame("Frame")
 local Refresh
@@ -183,7 +183,7 @@ local function CreateControls()
     mover:SetScript("OnDragStop", function()
         StopDrag()
         Refresh()
-        if dialog and dialog:IsShown() then dialog:Refresh() end
+        if ns.RefreshConfig then ns.RefreshConfig() end
     end)
     mover:SetScript("OnHide", StopDrag)
     mover:Hide()
@@ -270,178 +270,6 @@ group = {
 }
 ns.RegisterSpecialBarBindingTarget(group)
 
-local function CreateDialog()
-    local parent = _G.MythIncActionBarsConfig
-    if not parent then return end
-    local widgets = ns.ConfigWidgets
-
-    dialog = CreateFrame(
-        "Frame", "MythIncActionBarsVehicleSettings", parent, "BackdropTemplate"
-    )
-    dialog:SetAllPoints(parent)
-    dialog:SetFrameLevel(parent:GetFrameLevel() + 100)
-    dialog:EnableMouse(true)
-    dialog:RegisterForDrag("LeftButton")
-    dialog:SetScript("OnDragStart", function() parent:StartMoving() end)
-    dialog:SetScript("OnDragStop", function() parent:StopMovingOrSizing() end)
-    widgets.SetBackdrop(dialog, ns.Media.colors.background)
-    widgets.CreateText(dialog, "MYTH INC  |  VEHICLE CONTROLS", 18, 24, -20)
-    widgets.CreateText(
-        dialog, "Changes use the main menu's Apply / Revert controls.",
-        11, 24, -48, true
-    )
-    widgets.CreateButton(
-        dialog, "Back", 100, 30, 944, -18, function() dialog:Hide() end
-    )
-
-    local controls = {}
-    local capturing = false
-    local function SetValue(key, value)
-        if InCombatLockdown() then
-            Message("These settings cannot change during combat.")
-            dialog:Refresh()
-            return
-        end
-        Settings()[key] = value
-        Refresh()
-        dialog:Refresh()
-    end
-
-    for _, data in ipairs({
-        { "Enable Myth Inc Exit Vehicle button", "enabled", -100 },
-        {
-            "Use vehicle / override / possession pages on Bar 1",
-            "mainBarPaging", -144,
-        },
-    }) do
-        controls[#controls + 1] = widgets.CreateCheckButton(
-            dialog, data[1], 24, data[3],
-            function() return Settings()[data[2]] end,
-            function(value) SetValue(data[2], value) end
-        )
-    end
-
-    widgets.CreateButton(
-        dialog, "Unlock / Lock", 160, 32, 24, -204,
-        function() SetUnlocked(not unlocked) end
-    )
-    widgets.CreateButton(
-        dialog, "Reset Position", 160, 32, 234, -204,
-        function()
-            if InCombatLockdown() then return end
-            Settings().x, Settings().y = defaults.x, defaults.y
-            Refresh()
-            dialog:Refresh()
-        end
-    )
-
-    for _, data in ipairs({
-        { "Scale", "scale", 0.5, 2, 0.05, -286 },
-        { "X Position", "x", -1000, 1000, 1, -386 },
-        { "Y Position", "y", -1000, 1000, 1, -486 },
-    }) do
-        controls[#controls + 1] = widgets.CreateSlider(
-            dialog, data[1], data[3], data[4], data[5], 24, data[6],
-            function() return Settings()[data[2]] end,
-            function(value) SetValue(data[2], value) end,
-            data[2] == "scale" and function(value)
-                return string.format("%.2f", value)
-            end or nil,
-            370
-        )
-    end
-
-    local bindButton = widgets.CreateButton(
-        dialog, "", 370, 32, 554, -100,
-        function()
-            if InCombatLockdown() or not Settings().enabled then return end
-            capturing = true
-            dialog:EnableKeyboard(true)
-            dialog:SetPropagateKeyboardInput(false)
-            dialog:Refresh()
-        end
-    )
-    local function StopCapture()
-        capturing = false
-        dialog:EnableKeyboard(false)
-        dialog:SetPropagateKeyboardInput(true)
-    end
-
-    dialog:SetScript("OnKeyDown", function(_, key)
-        if not capturing then return end
-        if key == "ESCAPE" then
-            StopCapture()
-            dialog:Refresh()
-            return
-        end
-        local binding = ns.BuildCapturedKey(key)
-        if key == "DELETE" or key == "BACKSPACE" then
-            binding = nil
-        elseif not binding then
-            return
-        end
-        ns.SetSpecialBarBinding(group, 1, binding)
-        StopCapture()
-        dialog:Refresh()
-    end)
-
-    widgets.CreateText(
-        dialog,
-        "Use /kb to bind Exit Vehicle even outside a vehicle.\n"
-            .. "Special pages take priority over modifier pages.\n"
-            .. "Bar 1 must be enabled and visible in vehicles.\n"
-            .. "Its Visibility tab's 'Hide in Vehicle / Override Bar' "
-            .. "hides it when selected.",
-        11, 554, -170, true
-    )
-
-    dialog.Refresh = function()
-        for _, control in ipairs(controls) do control:Refresh() end
-        local key = Settings().keybinds[1]
-        bindButton:SetText(
-            capturing and "Press a key... (Escape cancels)"
-                or ("Exit keybind: "
-                    .. (key and ns.FormatKeybind(key) or "Unbound"))
-        )
-    end
-
-    dialog:SetScript("OnHide", function()
-        parent:StopMovingOrSizing()
-        StopCapture()
-        StopDrag()
-    end)
-    dialog:Hide()
-end
-
-function ns.OpenVehicleSettings()
-    if InCombatLockdown() then
-        Message("Open vehicle settings outside combat.")
-        return
-    end
-    Refresh()
-    for _, name in ipairs({
-        "MythIncActionBarsPetSettings", "MythIncActionBarsStanceSettings",
-        "MythIncActionBarsExtraSettings",
-    }) do
-        if _G[name] then _G[name]:Hide() end
-    end
-    if not _G.MythIncActionBarsConfig
-        or not _G.MythIncActionBarsConfig:IsShown() then
-        ns.ToggleConfig()
-    end
-    if not dialog then CreateDialog() end
-    if dialog then dialog:Refresh(); dialog:Show() end
-end
-
-local createLayout = ns.CreateLayoutConfigPage
-ns.CreateLayoutConfigPage = function(parent, context)
-    local page = createLayout(parent, context)
-    ns.ConfigWidgets.CreateButton(
-        page, "Vehicle", 160, 30, 140, -4, ns.OpenVehicleSettings
-    )
-    return page
-end
-
 local applyKeybinds = ns.ApplyAllKeybinds
 ns.ApplyAllKeybinds = function(...)
     local success, reason = applyKeybinds(...)
@@ -489,7 +317,6 @@ events:SetScript("OnEvent", function(_, event)
         StopDrag()
         unlocked = false
         if mover then mover:Hide() end
-        if dialog then dialog:Hide() end
         pending = true
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pending then Refresh() end
@@ -501,9 +328,6 @@ events:SetScript("OnEvent", function(_, event)
         end)
     end
 end)
-
--- Use the shared configuration selector and pages.
-ns.CreateLayoutConfigPage = createLayout
 
 ns.SpecialConfigTargets.vehicleControls = {
     name = "Vehicle Exit",

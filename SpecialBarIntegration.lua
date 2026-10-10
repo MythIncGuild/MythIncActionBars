@@ -78,14 +78,12 @@ local function Normalize(key)
 end
 
 local function RefreshBindingUI()
-    if ns.RefreshKeybindDisplay then ns.RefreshKeybindDisplay() end
-    if ns.RefreshConfig then ns.RefreshConfig() end
+    if ns.RefreshKeybindDisplay then
+        ns.RefreshKeybindDisplay()
+    end
 
-    for _, group in ipairs(groups) do
-        local menu = _G[group.menu]
-        if menu and menu:IsShown() and menu.Refresh then
-            menu:Refresh()
-        end
+    if ns.RefreshConfig then
+        ns.RefreshConfig()
     end
 end
 
@@ -455,8 +453,6 @@ listener:SetScript("OnUpdate", function(_, delta)
     elapsed = elapsed + delta
     if elapsed < 0.2 then return end
     elapsed = 0
-
-    for _, group in ipairs(groups) do AddMenuDragging(group) end
 
     if not InCombatLockdown() and ns.IsKeybindModeActive() then
         RefreshOverlays()

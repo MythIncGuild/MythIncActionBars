@@ -7,7 +7,7 @@ local defaults = {
 }
 ns.defaults.stanceBar = defaults
 
-local bar, mover, dialog, nativeBar
+local bar, mover, nativeBar
 local owned = false
 local pending = false
 local unlocked = false
@@ -297,7 +297,7 @@ local function CreateMover()
         settings.x = math.floor(settings.x + 0.5)
         settings.y = math.floor(settings.y + 0.5)
         Layout()
-        if dialog and dialog:IsShown() then dialog:Refresh() end
+        if ns.RefreshConfig then ns.RefreshConfig() end
     end)
 
     mover:Hide()
@@ -387,7 +387,6 @@ function ns.RefreshStanceBar()
     end
 
     ApplyBindings()
-    if dialog and dialog:IsShown() then dialog:Refresh() end
     return true
 end
 
@@ -407,234 +406,6 @@ local function SetUnlocked(value)
     unlocked = value and true or false
     if not unlocked then mover.StopDrag() end
     Layout()
-end
-
-local function CreateDialog()
-    local parent = _G.MythIncActionBarsConfig
-    if not parent then return end
-    local widgets = ns.ConfigWidgets
-
-    dialog = CreateFrame(
-        "Frame", "MythIncActionBarsStanceSettings",
-        parent, "BackdropTemplate"
-    )
-    dialog:SetAllPoints(parent)
-    dialog:SetFrameLevel(parent:GetFrameLevel() + 100)
-    dialog:EnableMouse(true)
-    widgets.SetBackdrop(dialog, ns.Media.colors.background)
-
-    widgets.CreateText(
-        dialog, "MYTH INC  |  STANCE / FORM BAR", 18, 24, -20
-    )
-    widgets.CreateText(
-        dialog, "Changes use the main menu's Apply / Revert controls.",
-        11, 24, -48, true
-    )
-    widgets.CreateButton(
-        dialog, "Back", 100, 30, 944, -18,
-        function() dialog:Hide() end
-    )
-
-    local controls = {}
-
-    local function SetValue(key, value)
-        if InCombatLockdown() then
-            Message("Stance bar settings cannot change during combat.")
-            dialog:Refresh()
-            return
-        end
-        Settings()[key] = value
-        ns.RefreshStanceBar()
-    end
-
-    local function Check(label, key, x, y)
-        controls[#controls + 1] = widgets.CreateCheckButton(
-            dialog, label, x, y,
-            function() return Settings()[key] end,
-            function(value) SetValue(key, value) end
-        )
-    end
-
-    Check("Enable Myth Inc stance bar", "enabled", 24, -82)
-    Check("Hide while mounted", "hideMounted", 24, -124)
-    Check("Hide in vehicles / override states", "hideVehicle", 24, -166)
-    Check("Show only in combat", "combatOnly", 24, -208)
-
-    widgets.CreateButton(
-        dialog, "Unlock / Lock", 160, 32, 264, -80,
-        function() SetUnlocked(not unlocked) end
-    )
-    widgets.CreateButton(
-        dialog, "Reset Position", 160, 32, 264, -122,
-        function()
-            if InCombatLockdown() then
-                Message("Cannot reset position during combat.")
-                return
-            end
-            local settings = Settings()
-            settings.x, settings.y = defaults.x, defaults.y
-            ns.RefreshStanceBar()
-        end
-    )
-
-    local function Slider(label, key, low, high, step, x, y)
-        controls[#controls + 1] = widgets.CreateSlider(
-            dialog, label, low, high, step, x, y,
-            function() return Settings()[key] end,
-            function(value)
-                local settings = Settings()
-                if key == "scale" and not InCombatLockdown() then
-                    local ratio = settings.scale / value
-                    settings.x = settings.x * ratio
-                    settings.y = settings.y * ratio
-                end
-                SetValue(key, value)
-            end,
-            key == "scale" and function(value)
-                return string.format("%.2f", value)
-            end or nil,
-            190
-        )
-    end
-
-    Slider("Buttons Per Row", "columns", 1, 10, 1, 24, -270)
-    Slider("Button Size", "buttonSize", 24, 64, 1, 264, -270)
-    Slider("Spacing", "spacing", 0, 20, 1, 24, -364)
-    Slider("Scale", "scale", 0.5, 2, 0.05, 264, -364)
-    Slider("X Position", "x", -1000, 1000, 1, 24, -458)
-    Slider("Y Position", "y", -1000, 1000, 1, 264, -458)
-
-    widgets.CreateText(
-        dialog,
-        "Click a button to select that form or stance.\n"
-            .. "Buttons follow Blizzard's form order and available abilities.",
-        11, 24, -572, true
-    )
-    widgets.CreateText(
-        dialog, "STANCE / FORM KEYBINDS", 14, 550, -86
-    )
-    widgets.CreateText(
-        dialog,
-        "Click a binding, then press a key. Escape cancels.\n"
-            .. "Delete / Backspace clears your custom binding.\n"
-            .. "Existing Blizzard stance bindings continue to work.",
-        11, 550, -116, true
-    )
-
-    local bindButtons = {}
-    local capturing
-
-    local function StopCapture()
-        capturing = nil
-        dialog:EnableKeyboard(false)
-        dialog:SetPropagateKeyboardInput(true)
-    end
-
-    for index = 1, 10 do
-        local y = -192 - (index - 1) * 38
-        widgets.CreateText(dialog, "Slot " .. index, 11, 550, y - 8)
-        bindButtons[index] = widgets.CreateButton(
-            dialog, "", 360, 30, 636, y,
-            function()
-                if InCombatLockdown() then
-                    Message("Stance bindings cannot change during combat.")
-                    return
-                end
-                if index > FormCount() then return end
-
-                capturing = index
-                dialog:EnableKeyboard(true)
-                dialog:SetPropagateKeyboardInput(false)
-                bindButtons[index].label:SetText(
-                    "Press a key... (Escape cancels)"
-                )
-            end
-        )
-    end
-
-    dialog:SetScript("OnKeyDown", function(_, key)
-        if not capturing then return end
-        local index = capturing
-
-        if key == "ESCAPE" then
-            StopCapture()
-            dialog:Refresh()
-            return
-        end
-
-        local binding = ns.BuildCapturedKey(key)
-        if key == "BACKSPACE" or key == "DELETE" then
-            binding = nil
-        elseif not binding then
-            return
-        end
-
-        if InCombatLockdown() or index > FormCount() then
-            StopCapture()
-            dialog:Refresh()
-            return
-        end
-
-        ns.SetNativeBarBinding("stanceBar", index, binding)
-        StopCapture()
-        dialog:Refresh()
-    end)
-
-    dialog.Refresh = function()
-        for _, control in ipairs(controls) do control:Refresh() end
-        for index, button in ipairs(bindButtons) do
-            local custom = Settings().keybinds[index]
-            local key = custom or GetBindingKey("SHAPESHIFTBUTTON" .. index)
-            local available = index <= FormCount()
-            local name
-
-            if available then
-                local _, _, _, spellID = GetShapeshiftFormInfo(index)
-                local info = spellID and C_Spell.GetSpellInfo(spellID)
-                name = info and info.name
-                button:Enable()
-            else
-                button:Disable()
-            end
-
-            button.label:SetText(
-                available and (
-                    (name or "Form " .. index) .. "  |  "
-                        .. (key and ns.FormatKeybind(key) or "Unbound")
-                        .. (custom and "" or " (Blizzard)")
-                ) or "Unavailable for this character"
-            )
-        end
-    end
-
-    dialog:SetScript("OnHide", function()
-        parent:StopMovingOrSizing()
-        StopCapture()
-        if mover then mover.StopDrag() end
-    end)
-    dialog:Hide()
-end
-
-function ns.OpenStanceBarSettings()
-    if _G.MythIncActionBarsPetSettings then
-        _G.MythIncActionBarsPetSettings:Hide()
-    end
-    if not _G.MythIncActionBarsConfig
-        or not _G.MythIncActionBarsConfig:IsShown() then
-        ns.ToggleConfig()
-    end
-    if not dialog then CreateDialog() end
-    if dialog then dialog:Refresh(); dialog:Show() end
-end
-
-local createLayout = ns.CreateLayoutConfigPage
-ns.CreateLayoutConfigPage = function(parent, context)
-    local page = createLayout(parent, context)
-    ns.ConfigWidgets.CreateButton(
-        page, "Stance / Forms", 160, 30, 680, -4,
-        ns.OpenStanceBarSettings
-    )
-    return page
 end
 
 local refreshProfile = ns.RefreshAllBarsFromProfile
@@ -675,7 +446,6 @@ end
 events:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_REGEN_DISABLED" then
         SetUnlocked(false)
-        if dialog and dialog:IsShown() then dialog:Hide() end
         return
     end
 
@@ -687,16 +457,12 @@ events:SetScript("OnEvent", function(_, event)
         else
             UpdateHotkeys()
         end
-        if dialog and dialog:IsShown() then dialog:Refresh() end
         return
     end
 
     if event == "PLAYER_REGEN_ENABLED" and not pending then return end
     ns.RefreshStanceBar()
 end)
-
--- Use the shared configuration selector and pages.
-ns.CreateLayoutConfigPage = createLayout
 
 ns.SpecialConfigTargets.stanceBar = {
     name = "Stance / Forms",

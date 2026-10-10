@@ -21,7 +21,6 @@ ns.defaults.extraAbilities = {
 }
 
 local states = {}
-local dialog
 local pending = false
 local queued = false
 local Refresh
@@ -189,7 +188,7 @@ local function CreateState(definition)
         settings.x = math.floor(settings.x + 0.5)
         settings.y = math.floor(settings.y + 0.5)
         Refresh()
-        if dialog and dialog:IsShown() then dialog:Refresh() end
+        if ns.RefreshConfig then ns.RefreshConfig() end
     end)
 
     mover:SetScript("OnHide", function() StopDrag(state) end)
@@ -747,7 +746,6 @@ events:SetScript("OnEvent", function(_, event)
             StopDrag(state)
             state.mover:Hide()
         end
-        if dialog then dialog:Hide() end
         pending = true
     elseif event == "PLAYER_REGEN_ENABLED" then
         if pending then Refresh() end
@@ -755,9 +753,6 @@ events:SetScript("OnEvent", function(_, event)
         QueueRefresh()
     end
 end)
-
--- Use the shared configuration selector and pages.
-ns.CreateLayoutConfigPage = createLayout
 
 for _, definition in ipairs(definitions) do
     local target = definition
