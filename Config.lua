@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 
 local widgets = ns.ConfigWidgets
@@ -68,6 +69,7 @@ local applyChangesButton
 local revertChangesButton
 local resetAllButton
 local minimizeButton
+local resizeGrip
 local logoTexture
 local applyToAllButton
 
@@ -87,6 +89,19 @@ local isMinimized = false
 local WINDOW_WIDTH = 1080
 local WINDOW_HEIGHT = 720
 local MINIMIZED_HEIGHT = 64
+local MIN_WINDOW_HEIGHT = 480
+local SCREEN_MARGIN = 32
+
+-- The configured height is measured in baseline (1080x720) UI units.
+-- Below 720, the entire window scales instead of compressing controls.
+local preferredWindowHeight = WINDOW_HEIGHT
+local resizeInProgress = false
+local resizeStartCursorY = 0
+local resizeStartHeight = WINDOW_HEIGHT
+local resizeBaseScale = 1
+local resizeFixedCenterX
+local resizeFixedTop
+
 local BAR_BUTTON_WIDTH = 124
 local BAR_BUTTON_HEIGHT = 30
 local BAR_BUTTON_SPACING = 6
@@ -1153,17 +1168,196 @@ local function ShowBulkDialog()
     bulkOverlay:Show()
 end
 
+-- Window sizing is kept outside profiles and the configuration session's
+-- Apply/Revert snapshot, since it is a UI preference rather than bar data.
+local function GetWindowPreferences()
+    local root = ns.rootDB or MythIncActionBarsDB
+    if not root then return nil end
+
+    if type(root.window) ~= "table" then
+        root.window = {}
+    end
+
+    return root.window
+end
+
+local function LoadWindowHeight()
+    local preferences = GetWindowPreferences()
+    local height = preferences and tonumber(preferences.height)
+
+    if height and height == height then
+        preferredWindowHeight = math.max(
+            MIN_WINDOW_HEIGHT,
+            math.floor(height + 0.5)
+        )
+    else
+        preferredWindowHeight = WINDOW_HEIGHT
+    end
+end
+
+local function SaveWindowHeight()
+    local preferences = GetWindowPreferences()
+    if preferences then
+        preferences.height = preferredWindowHeight
+    end
+end
+
+local function GetScreenFitScale()
+    return math.max(0.1, math.min(
+        1,
+        (UIParent:GetWidth() - SCREEN_MARGIN) / WINDOW_WIDTH,
+        (UIParent:GetHeight() - SCREEN_MARGIN) / WINDOW_HEIGHT
+    ))
+end
+
+local function GetMaximumWindowHeight(baseScale)
+    return math.max(
+        WINDOW_HEIGHT,
+        math.floor(
+            (UIParent:GetHeight() - SCREEN_MARGIN) / baseScale
+        )
+    )
+end
+
 local function FitConfigToScreen()
     if not panel then return end
 
-    local targetHeight =
-        isMinimized and MINIMIZED_HEIGHT or WINDOW_HEIGHT
+    local baseScale = GetScreenFitScale()
+    local shownHeight = math.min(
+        preferredWindowHeight,
+        GetMaximumWindowHeight(baseScale)
+    )
 
-    panel:SetScale(math.min(
-        1,
-        (UIParent:GetWidth() - 32) / WINDOW_WIDTH,
-        (UIParent:GetHeight() - 32) / targetHeight
-    ))
+    if isMinimized then
+        panel:SetHeight(MINIMIZED_HEIGHT)
+        panel:SetScale(baseScale * math.min(
+            1, shownHeight / WINDOW_HEIGHT
+        ))
+    elseif shownHeight < WINDOW_HEIGHT then
+        -- Keep the full 720-unit layout; scale it uniformly.
+        panel:SetHeight(WINDOW_HEIGHT)
+        panel:SetScale(baseScale * shownHeight / WINDOW_HEIGHT)
+    else
+        -- Only the bottom-anchored settings viewport expands.
+        panel:SetHeight(shownHeight)
+        panel:SetScale(baseScale)
+    end
+
+    if resizeGrip then
+        resizeGrip:SetShown(not isMinimized)
+    end
+end
+
+local function StartVerticalResize()
+    if not panel or isMinimized or resizeInProgress then
+        return
+    end
+
+    resizeInProgress = true
+    resizeStartHeight = preferredWindowHeight
+    resizeBaseScale = GetScreenFitScale()
+
+    local _, cursorY = GetCursorPosition()
+    resizeStartCursorY = cursorY
+
+    -- Retain the top edge and horizontal centre as the grip moves.
+    -- These are captured in screen pixels, independent of frame scale.
+    local centerX = panel:GetCenter()
+    local top = panel:GetTop()
+    local effectiveScale = panel:GetEffectiveScale()
+
+    if centerX and top then
+        resizeFixedCenterX = centerX * effectiveScale
+        resizeFixedTop = top * effectiveScale
+    else
+        resizeFixedCenterX = nil
+        resizeFixedTop = nil
+    end
+end
+
+local function UpdateVerticalResize()
+    if not resizeInProgress or not panel then return end
+
+    local _, cursorY = GetCursorPosition()
+    local parentScale = UIParent:GetEffectiveScale()
+    local pixelsPerUnit = parentScale * resizeBaseScale
+    if pixelsPerUnit <= 0 then return end
+
+    local delta =
+        (resizeStartCursorY - cursorY) / pixelsPerUnit
+
+    preferredWindowHeight = math.floor(math.max(
+        MIN_WINDOW_HEIGHT,
+        math.min(
+            GetMaximumWindowHeight(resizeBaseScale),
+            resizeStartHeight + delta
+        )
+    ) + 0.5)
+
+    FitConfigToScreen()
+
+    if resizeFixedCenterX and resizeFixedTop then
+        local effectiveScale = panel:GetEffectiveScale()
+        panel:ClearAllPoints()
+        panel:SetPoint(
+            "TOP", UIParent, "BOTTOMLEFT",
+            resizeFixedCenterX / effectiveScale,
+            resizeFixedTop / effectiveScale
+        )
+    end
+end
+
+local function StopVerticalResize()
+    if not resizeInProgress then return end
+
+    UpdateVerticalResize()
+    resizeInProgress = false
+    resizeFixedCenterX = nil
+    resizeFixedTop = nil
+    SaveWindowHeight()
+end
+
+local function CreateResizeGrip()
+    resizeGrip = CreateFrame("Button", nil, panel)
+    resizeGrip:SetSize(104, 14)
+    resizeGrip:SetPoint("BOTTOM", panel, "BOTTOM", 0, 2)
+    resizeGrip:SetFrameLevel(panel:GetFrameLevel() + 15)
+    resizeGrip:RegisterForDrag("LeftButton")
+
+    local line = resizeGrip:CreateTexture(nil, "ARTWORK")
+    line:SetColorTexture(unpack(colors.accent))
+    line:SetSize(48, 2)
+    line:SetPoint("CENTER", resizeGrip, "CENTER", 0, 2)
+
+    local secondLine = resizeGrip:CreateTexture(nil, "ARTWORK")
+    secondLine:SetColorTexture(unpack(colors.accent))
+    secondLine:SetSize(30, 2)
+    secondLine:SetPoint("CENTER", resizeGrip, "CENTER", 0, -2)
+
+    resizeGrip:SetScript("OnDragStart", StartVerticalResize)
+    resizeGrip:SetScript("OnDragStop", StopVerticalResize)
+    resizeGrip:SetScript("OnUpdate", UpdateVerticalResize)
+
+    resizeGrip:SetScript("OnEnter", function(self)
+        line:SetAlpha(1)
+        secondLine:SetAlpha(1)
+        GameTooltip:SetOwner(self, "ANCHOR_TOP")
+        GameTooltip:SetText("Resize Configuration")
+        GameTooltip:AddLine(
+            "Drag up or down. Above 720, more settings are visible; below 720, the entire window scales.",
+            1, 1, 1, true
+        )
+        GameTooltip:Show()
+    end)
+
+    resizeGrip:SetScript("OnLeave", function()
+        line:SetAlpha(0.65)
+        secondLine:SetAlpha(0.65)
+        GameTooltip:Hide()
+    end)
+
+    line:SetAlpha(0.65)
+    secondLine:SetAlpha(0.65)
 end
 
 SetTopLevelMode = function(mode)
@@ -1271,11 +1465,8 @@ SetTopLevelMode = function(mode)
 end
 
 local function SetMinimized(minimized)
+    StopVerticalResize()
     isMinimized = minimized
-
-    panel:SetHeight(
-        minimized and MINIMIZED_HEIGHT or WINDOW_HEIGHT
-    )
 
     minimizeButton:SetText(
         minimized and "Restore" or "Minimize"
@@ -2133,6 +2324,13 @@ end
 local function CreateBottomActions()
     local y = -(WINDOW_HEIGHT - 46)
 
+    local function AnchorToBottom(button, x)
+        button:ClearAllPoints()
+        button:SetPoint(
+            "BOTTOMLEFT", panel, "BOTTOMLEFT", x, 16
+        )
+    end
+
     applyChangesButton = widgets.CreateButton(
         panel, "Apply Changes", 146, 30, 22, y,
         function()
@@ -2209,10 +2407,21 @@ local function CreateBottomActions()
             ShowResetAllConfirmation()
         end
     )
+
+    -- These buttons were originally anchored from the 720px top.
+    -- Keep them with the footer as the configuration window grows.
+    AnchorToBottom(applyChangesButton, 22)
+    AnchorToBottom(revertChangesButton, 178)
+    AnchorToBottom(resetButton, 346)
+    AnchorToBottom(deleteButton, 486)
+    AnchorToBottom(applyToAllButton, 636)
+    AnchorToBottom(resetAllButton, WINDOW_WIDTH - 132)
 end
 
 local function CreateConfigPanel()
     if panel then return panel end
+
+    LoadWindowHeight()
 
     panel = CreateFrame(
         "Frame",
@@ -2248,6 +2457,7 @@ local function CreateConfigPanel()
     CreateGeneralHost()
     CreateProfilesHost()
     CreateBottomActions()
+    CreateResizeGrip()
 
     panel:SetScript("OnShow", function()
         if suppressNextSessionStart then
@@ -2269,6 +2479,8 @@ local function CreateConfigPanel()
     end)
 
     panel:SetScript("OnHide", function()
+        StopVerticalResize()
+
         if renameDialog then
             renameDialog:Hide()
         end
@@ -2325,7 +2537,6 @@ function ns.SelectConfigBar(barID)
     end
 
     isMinimized = false
-    config:SetHeight(WINDOW_HEIGHT)
 
     SetTopLevelMode("Action Bars")
     SelectBar(barID)
