@@ -20,7 +20,8 @@ local VALID_FLYOUT_DIRECTIONS = {
     RIGHT = true,
 }
 
-local pendingFlyoutButtons = setmetatable({}, { __mode = "k" })
+local pendingFlyoutButtons =
+    setmetatable({}, { __mode = "k" })
 
 local TEXT_DEFAULTS = {
     count = { size = 12, position = "BOTTOMRIGHT" },
@@ -32,9 +33,11 @@ local TEXT_DEFAULTS = {
 
 local function Number(value, fallback)
     value = tonumber(value)
+
     if not value or value ~= value then
         return fallback
     end
+
     return value
 end
 
@@ -55,8 +58,6 @@ local function EnsureAppearance(settings)
         showBorder = true,
         emptyOpacity = 0.85,
 
-        -- Empty-button visibility.
-        -- Existing profiles default to their original behaviour.
         showEmptyButtons = true,
         showEmptyWhileUnlocked = true,
 
@@ -100,6 +101,7 @@ local function EnsureAppearance(settings)
             Number(appearance[prefix .. "OffsetY"], 0)
 
         appearance[colorKey] = appearance[colorKey] or {}
+
         local color = appearance[colorKey]
 
         if color.r == nil then color.r = 1 end
@@ -116,6 +118,10 @@ local function EnsureAppearance(settings)
 
     return appearance
 end
+
+-- ============================================================
+-- ICON AND TEXT APPEARANCE
+-- ============================================================
 
 local function ApplyIconZoom(button, appearance)
     if not button.icon then return end
@@ -179,10 +185,17 @@ local function StyleText(
 
     local inset = prefix == "keybind" and 3 or 2
 
-    local left = point:find("LEFT", 1, true) ~= nil
-    local right = point:find("RIGHT", 1, true) ~= nil
-    local top = point:find("TOP", 1, true) ~= nil
-    local bottom = point:find("BOTTOM", 1, true) ~= nil
+    local left =
+        point:find("LEFT", 1, true) ~= nil
+
+    local right =
+        point:find("RIGHT", 1, true) ~= nil
+
+    local top =
+        point:find("TOP", 1, true) ~= nil
+
+    local bottom =
+        point:find("BOTTOM", 1, true) ~= nil
 
     local x = left and inset or (right and -inset or 0)
     local y = top and -inset or (bottom and inset or 0)
@@ -320,6 +333,7 @@ end
 
 local function ApplyKeybindText(button, appearance)
     local hotKey = button.HotKey
+
     if not hotKey then return end
 
     hotKey:SetDrawLayer("OVERLAY", 7)
@@ -337,6 +351,10 @@ local function ApplyKeybindText(button, appearance)
         appearance.showKeybind ~= false
     )
 end
+
+-- ============================================================
+-- FLYOUT DIRECTION
+-- ============================================================
 
 local function ApplyFlyoutDirection(button, appearance)
     local direction =
@@ -372,6 +390,7 @@ local function ApplyFlyoutDirection(button, appearance)
 end
 
 local flyoutEvents = CreateFrame("Frame")
+
 flyoutEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 flyoutEvents:SetScript("OnEvent", function()
@@ -401,24 +420,55 @@ flyoutEvents:SetScript("OnEvent", function()
     end
 end)
 
--- ------------------------------------------------------------
--- Empty-button visibility
--- ------------------------------------------------------------
+-- ============================================================
+-- ACTION CURSOR DETECTION
+-- ============================================================
 --
--- Button frames remain laid out in their normal positions.
--- Only their visual alpha and mouse interaction are changed.
+-- Detect objects that can be placed on action bars.
+-- Hidden empty buttons temporarily reappear while an action
+-- is being carried, then return to their saved visibility.
 --
--- Secure action attributes, action paging and bar visibility
--- drivers are left untouched.
+-- Cursor state is cached to avoid repeated button scans.
+-- ============================================================
+
+local DRAG_CURSOR_TYPES = {
+    spell = true,
+    item = true,
+    macro = true,
+    action = true,
+    mount = true,
+    companion = true,
+    petaction = true,
+    battlepet = true,
+    flyout = true,
+    equipmentset = true,
+    toy = true,
+    outfit = true,
+}
+
+local cursorCarryingAction = false
+
+local function IsActionOnCursor()
+    return DRAG_CURSOR_TYPES[GetCursorInfo()] == true
+end
+
+-- ============================================================
+-- EMPTY BUTTON VISIBILITY
+-- ============================================================
 --
--- Changes to protected button interaction are never attempted
--- while in combat.
+-- Empty-button visibility is independent of bar fading.
 --
--- Blizzard-backed buttons are considered occupied if an action
--- exists on any page that can become active for that bar.
--- This avoids making alternate-page actions inaccessible when
--- paging changes during combat.
--- ------------------------------------------------------------
+-- Secure action assignments and bar visibility state drivers
+-- are never modified.
+--
+-- Hidden empty slots normally have zero alpha and cannot
+-- receive mouse input.
+--
+-- While an action is on the cursor, configured empty slots
+-- are revealed as valid drop targets.
+--
+-- Protected mouse interaction is only changed out of combat.
+-- ============================================================
 
 local BLIZZARD_BASE_PAGES = {
     [1] = 1,
@@ -480,7 +530,6 @@ local function HasBlizzardAction(
         return true
     end
 
-    -- Retain positions occupied by an enabled modifier page.
     local pages = settings.actionPages or {}
 
     for _, modifier in ipairs({
@@ -498,8 +547,8 @@ local function HasBlizzardAction(
         end
     end
 
-    -- Action Bar 1 also uses the standard action pages and
-    -- bonus pages for shapeshifting and similar states.
+    -- The primary bar can also use bonus action pages for
+    -- stances, shapeshifting and related states.
     if barID == 1 then
         for page = 1, 10 do
             if HasPage(page) then
@@ -508,7 +557,6 @@ local function HasBlizzardAction(
         end
     end
 
-    -- Account for an effective action slot, if it differs.
     if button and button.GetCurrentActionSlot then
         local slot = button.GetCurrentActionSlot()
 
@@ -525,8 +573,6 @@ end
 local function HasCustomAssignment(settings, buttonID)
     local assignments = settings.assignments
 
-    -- CustomActionButton.lua maintains this active alias.
-    -- It is refreshed when the player changes specialization.
     return assignments
         and assignments[buttonID] ~= nil
         or false
@@ -541,6 +587,12 @@ local function ShouldShowEmptyButton(
     local appearance = EnsureAppearance(settings)
 
     if appearance.showEmptyButtons ~= false then
+        return true
+    end
+
+    -- Carrying an action temporarily reveals available
+    -- slots even when a bar is locked.
+    if cursorCarryingAction then
         return true
     end
 
@@ -571,7 +623,8 @@ function ns.RefreshEmptyButtonVisibility(barID)
         return false
     end
 
-    if not ns.db or not ns.db.bars
+    if not ns.db
+        or not ns.db.bars
         or not ns.Bars
     then
         return false
@@ -580,7 +633,8 @@ function ns.RefreshEmptyButtonVisibility(barID)
     local settings = ns.db.bars[barID]
     local bar = ns.Bars[barID]
 
-    if not settings or not bar
+    if not settings
+        or not bar
         or not bar.buttons
     then
         return false
@@ -608,13 +662,7 @@ function ns.RefreshEmptyButtonVisibility(barID)
         if previous ~= show then
             emptyButtonState[button] = show
 
-            -- Keeping the secure frame alive also ensures that
-            -- normal action-page and keybinding registration
-            -- remains intact.
             button:SetAlpha(show and 1 or 0)
-
-            -- Hidden empty slots should not intercept clicks.
-            -- This is only changed out of combat.
             button:EnableMouse(show)
         end
     end
@@ -638,15 +686,207 @@ function ns.RefreshAllEmptyButtonVisibility()
     return true
 end
 
+-- ============================================================
+-- EVENT-DRIVEN EMPTY BUTTON REFRESHING
+-- ============================================================
+--
+-- Multiple refresh requests within the same frame are
+-- combined into a single update.
+--
+-- Requests during combat remain pending until combat ends.
+-- ============================================================
+
+local pendingRefreshAll = false
+local pendingBarRefreshes = {}
+local refreshScheduled = false
+
+local function RunPendingEmptyRefreshes()
+    refreshScheduled = false
+
+    if InCombatLockdown() then
+        return
+    end
+
+    if pendingRefreshAll then
+        pendingRefreshAll = false
+        pendingBarRefreshes = {}
+
+        ns.RefreshAllEmptyButtonVisibility()
+        return
+    end
+
+    local bars = pendingBarRefreshes
+    pendingBarRefreshes = {}
+
+    for barID in pairs(bars) do
+        ns.RefreshEmptyButtonVisibility(barID)
+    end
+end
+
+local function QueueEmptyButtonRefresh(barID)
+    if type(barID) == "number" then
+        if not pendingRefreshAll then
+            pendingBarRefreshes[barID] = true
+        end
+    else
+        pendingRefreshAll = true
+        pendingBarRefreshes = {}
+    end
+
+    if refreshScheduled or InCombatLockdown() then
+        return
+    end
+
+    refreshScheduled = true
+
+    C_Timer.After(0, RunPendingEmptyRefreshes)
+end
+
+-- ============================================================
+-- CURSOR TRANSITION TRACKING
+-- ============================================================
+--
+-- When a player picks up an action, reveal hidden empty
+-- slots so they can receive a drop.
+--
+-- When the action is dropped or cancelled, restore normal
+-- empty-button visibility.
+--
+-- A full refresh only occurs when the cursor changes
+-- between carrying and not carrying an action.
+-- ============================================================
+
+local function RefreshActionCursorState()
+    if InCombatLockdown() then
+        return
+    end
+
+    local carryingAction = IsActionOnCursor()
+
+    if cursorCarryingAction == carryingAction then
+        return
+    end
+
+    cursorCarryingAction = carryingAction
+
+    QueueEmptyButtonRefresh()
+end
+
+-- ============================================================
+-- CUSTOM BUTTON ASSIGNMENT NOTIFICATIONS
+-- ============================================================
+--
+-- CustomActionButton.lua retains ownership of assignments.
+-- Refresh after dragging, clicking or dropping actions.
+-- ============================================================
+
+local originalCreateCustomActionButton =
+    ns.CreateCustomActionButton
+
+if originalCreateCustomActionButton then
+    ns.CreateCustomActionButton = function(...)
+        local button =
+            originalCreateCustomActionButton(...)
+
+        if not button then
+            return button
+        end
+
+        button:HookScript(
+            "OnReceiveDrag",
+            function(self)
+                if not InCombatLockdown() then
+                    QueueEmptyButtonRefresh(self.barID)
+                end
+            end
+        )
+
+        button:HookScript(
+            "OnDragStart",
+            function(self)
+                if not InCombatLockdown() then
+                    QueueEmptyButtonRefresh(self.barID)
+                end
+            end
+        )
+
+        button:HookScript(
+            "PostClick",
+            function(self)
+                if not InCombatLockdown() then
+                    QueueEmptyButtonRefresh(self.barID)
+                end
+            end
+        )
+
+        return button
+    end
+end
+
+-- ============================================================
+-- BAR LOCK / UNLOCK NOTIFICATIONS
+-- ============================================================
+--
+-- Mover.lua loads after Appearance.lua.
+-- Hook existing mover functions after loading.
+-- ============================================================
+
+local moverHooksInstalled = false
+
+local function InstallMoverHooks()
+    if moverHooksInstalled then
+        return
+    end
+
+    if type(ns.SetBarUnlocked) ~= "function"
+        or type(ns.SetAllBarsUnlocked) ~= "function"
+    then
+        return
+    end
+
+    moverHooksInstalled = true
+
+    hooksecurefunc(
+        ns,
+        "SetBarUnlocked",
+        function(barID)
+            QueueEmptyButtonRefresh(barID)
+        end
+    )
+
+    hooksecurefunc(
+        ns,
+        "SetAllBarsUnlocked",
+        function()
+            QueueEmptyButtonRefresh()
+        end
+    )
+end
+
+-- ============================================================
+-- WOW EVENT LISTENERS
+-- ============================================================
+--
+-- WoW Retail supports CURSOR_CHANGED.
+--
+-- CURSOR_UPDATE was removed from registration because it
+-- is no longer a valid Retail event.
+--
+-- The existing lightweight cursor-state check also handles
+-- cursor swaps that do not dispatch another event.
+-- ============================================================
+
 local emptyButtonEvents = CreateFrame("Frame")
 
 for _, event in ipairs({
+    "PLAYER_LOGIN",
     "PLAYER_ENTERING_WORLD",
     "PLAYER_REGEN_ENABLED",
     "PLAYER_SPECIALIZATION_CHANGED",
     "ACTIONBAR_SLOT_CHANGED",
-    "UPDATE_MACROS",
     "ACTIONBAR_PAGE_CHANGED",
+    "UPDATE_MACROS",
+    "CURSOR_CHANGED",
 }) do
     emptyButtonEvents:RegisterEvent(event)
 end
@@ -654,29 +894,52 @@ end
 emptyButtonEvents:SetScript(
     "OnEvent",
     function(_, event, unit)
+        if event == "PLAYER_LOGIN" then
+            InstallMoverHooks()
+            QueueEmptyButtonRefresh()
+            return
+        end
+
         if event == "PLAYER_SPECIALIZATION_CHANGED"
             and unit ~= "player"
         then
             return
         end
 
-        if InCombatLockdown() then
+        if event == "PLAYER_REGEN_ENABLED" then
+            cursorCarryingAction = IsActionOnCursor()
+
+            QueueEmptyButtonRefresh()
             return
         end
 
-        -- Defer one frame so Blizzard action updates and custom
-        -- specialization assignments can finish first.
-        C_Timer.After(0, function()
+        if event == "CURSOR_CHANGED" then
             if not InCombatLockdown() then
-                ns.RefreshAllEmptyButtonVisibility()
+                -- Cursor state may settle after this event.
+                -- Recheck on the next frame.
+                C_Timer.After(
+                    0,
+                    RefreshActionCursorState
+                )
             end
-        end)
+
+            return
+        end
+
+        if event == "PLAYER_ENTERING_WORLD" then
+            InstallMoverHooks()
+
+            cursorCarryingAction =
+                IsActionOnCursor()
+        end
+
+        QueueEmptyButtonRefresh()
     end
 )
 
--- ------------------------------------------------------------
--- Standard button appearance
--- ------------------------------------------------------------
+-- ============================================================
+-- STANDARD BUTTON APPEARANCE
+-- ============================================================
 
 function ns.ApplyButtonAppearance(button, settings)
     if not button or not settings then
@@ -684,6 +947,7 @@ function ns.ApplyButtonAppearance(button, settings)
     end
 
     local appearance = EnsureAppearance(settings)
+
     button.MIABFeedbackAppearance = appearance
 
     ApplyIconZoom(button, appearance)
@@ -749,45 +1013,43 @@ function ns.GetBarAppearance(barID)
     return EnsureAppearance(settings)
 end
 
--- ------------------------------------------------------------
--- Bar fading
--- ------------------------------------------------------------
+-- ============================================================
+-- BAR FADING
+-- ============================================================
 --
--- Secure visibility decides whether a bar is shown.
--- Fading changes opacity without changing its visibility driver.
--- Empty-button alpha remains independent of the bar's fade.
--- ------------------------------------------------------------
+-- Fading continues to use its existing animation loop.
+--
+-- Empty-button occupancy is never repeatedly scanned.
+--
+-- Cursor state is checked alongside fading, ensuring that
+-- cursor swaps are recognized even without another event.
+-- ============================================================
 
-local fadeStates = setmetatable({}, { __mode = "k" })
-local ownedFadeFrames = setmetatable({}, { __mode = "k" })
+local fadeStates =
+    setmetatable({}, { __mode = "k" })
 
-local DRAG_CURSOR_TYPES = {
-    spell = true,
-    item = true,
-    macro = true,
-    action = true,
-    mount = true,
-    companion = true,
-    petaction = true,
-    battlepet = true,
-    flyout = true,
-}
+local ownedFadeFrames =
+    setmetatable({}, { __mode = "k" })
 
 local SPECIAL_FADE_FRAMES = {
     petBar = {
         "MythIncActionBarsPetBar",
     },
+
     stanceBar = {
         "MythIncActionBarsStanceBar",
     },
+
     extraAction = {
         "ExtraActionBarFrame",
         "MythIncActionBarsextraActionAnchor",
     },
+
     zoneAbility = {
         "ZoneAbilityFrame",
         "MythIncActionBarszoneAbilityAnchor",
     },
+
     vehicleControls = {
         "MythIncActionBarsVehicleControl",
     },
@@ -820,7 +1082,8 @@ function ns.GetBarFadeSettings(barID)
         return
     end
 
-    settings.visibility = settings.visibility or {}
+    settings.visibility =
+        settings.visibility or {}
 
     local visibility = settings.visibility
 
@@ -846,6 +1109,7 @@ local function FadeFrames(barID)
 
     if not names then
         local bar = ns.Bars and ns.Bars[barID]
+
         return bar and { bar } or {}
     end
 
@@ -889,7 +1153,7 @@ local function EditingBars()
         ns.IsKeybindModeActive
         and ns.IsKeybindModeActive()
     )
-    or DRAG_CURSOR_TYPES[GetCursorInfo()] == true
+    or IsActionOnCursor()
 end
 
 local function TargetOpacity(
@@ -1028,7 +1292,8 @@ function ns.SetBarFadeOption(barID, option, value)
     elseif option == "fadeOnMouseover"
         or option == "showFullyInCombat"
     then
-        visibility[option] = value and true or false
+        visibility[option] =
+            value and true or false
     else
         return false, "invalid"
     end
@@ -1039,13 +1304,24 @@ function ns.SetBarFadeOption(barID, option, value)
     return true
 end
 
+-- ============================================================
+-- FADE WATCHER
+-- ============================================================
+--
+-- Retains the existing fading behaviour.
+--
+-- Cursor state is checked every 0.05 seconds.
+-- Only cursor-state transitions trigger a refresh of
+-- empty-button visibility.
+--
+-- No repeated empty-action-slot scanning occurs.
+-- ============================================================
+
 local fadeWatcher = CreateFrame("Frame")
 local fadeElapsed = 0
-local emptyElapsed = 0
 
 fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     fadeElapsed = fadeElapsed + elapsed
-    emptyElapsed = emptyElapsed + elapsed
 
     if fadeElapsed < 0.05 then
         return
@@ -1053,6 +1329,8 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
 
     local step = fadeElapsed
     fadeElapsed = 0
+
+    RefreshActionCursorState()
 
     if not ns.db or not ns.db.bars then
         return
@@ -1122,19 +1400,6 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
             bar:SetAlpha(alpha)
             ownedFadeFrames[bar] = nil
             fadeStates[bar] = nil
-        end
-    end
-
-    -- Reconcile unlocked states, new custom assignments,
-    -- and settings changes without modifying protected
-    -- button interaction during combat.
-    --
-    -- This is deliberately less frequent than fading.
-    if emptyElapsed >= 0.20 then
-        emptyElapsed = 0
-
-        if not InCombatLockdown() then
-            ns.RefreshAllEmptyButtonVisibility()
         end
     end
 end)
