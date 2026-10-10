@@ -12,6 +12,212 @@ local function FlyoutError(message)
     print("|cff7fd5ffMythInc Action Bars:|r Flyout: " .. tostring(message))
 end
 
+-- Spell buttons use secure unit drivers. Macro buttons retain their own targets.
+local castingButtons = setmetatable({}, { __mode = "k" })
+
+local function ModifierCondition(action)
+    local key = GetModifiedClick(action)
+    if not key or key == "NONE" then return nil end
+
+    local conditions = {}
+
+    for modifier in key:lower():gmatch("[^%-]+") do
+        if modifier ~= "alt" and modifier ~= "ctrl" and modifier ~= "shift" then
+            return nil
+        end
+        conditions[#conditions + 1] = "mod:" .. modifier
+    end
+
+    if #conditions > 0 then
+        return table.concat(conditions, ",")
+    end
+end
+
+function ns.InitializeSpellCasting(button, resolveSpellID)
+    button.RefreshCasting = function(self)
+        if InCombatLockdown() then return end
+
+        local spellID = resolveSpellID()
+        local parts = {}
+
+        if spellID then
+            local helpful = C_Spell.IsSpellHelpful(spellID)
+            local harmful = C_Spell.IsSpellHarmful(spellID)
+
+            -- Match Blizzard's mouseover, self-cast, focus-cast priority.
+            if GetCVarBool("enableMouseoverCast") then
+                local key = GetModifiedClick("MOUSEOVERCAST")
+                local modifier = ModifierCondition("MOUSEOVERCAST")
+
+                if key == "NONE" or modifier then
+                    local prefix = modifier and (modifier .. ",") or ""
+
+                    if helpful then
+                        parts[#parts + 1] =
+                            "[" .. prefix .. "@mouseover,help] mouseover"
+                    end
+
+                    if harmful then
+                        parts[#parts + 1] =
+                            "[" .. prefix .. "@mouseover,harm] mouseover"
+                    end
+                end
+            end
+
+            local selfCast = ModifierCondition("SELFCAST")
+            local focusCast = ModifierCondition("FOCUSCAST")
+
+            if selfCast then
+                parts[#parts + 1] = "[" .. selfCast .. "] player"
+            end
+
+            if focusCast then
+                parts[#parts + 1] = "[" .. focusCast .. "] focus"
+            end
+
+            if helpful and GetCVarBool("autoSelfCast") then
+                parts[#parts + 1] = "[help] target"
+
+                if harmful then
+                    parts[#parts + 1] = "[harm] target"
+                end
+
+                parts[#parts + 1] = "player"
+            else
+                parts[#parts + 1] = "target"
+            end
+        end
+
+        local driver = #parts > 0 and table.concat(parts, "; ") or nil
+
+        if self.MIABUnitDriver ~= driver then
+            UnregisterAttributeDriver(self, "unit")
+            self:SetAttribute("unit", nil)
+
+            if driver then
+                RegisterAttributeDriver(self, "unit", driver)
+            end
+
+            self.MIABUnitDriver = driver
+        end
+    end
+
+    castingButtons[button] = true
+    button:RefreshCasting()
+end
+
+local castingEvents = CreateFrame("Frame")
+castingEvents:RegisterEvent("CVAR_UPDATE")
+castingEvents:RegisterEvent("UPDATE_BINDINGS")
+castingEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+castingEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+castingEvents:RegisterEvent("SPELLS_CHANGED")
+
+castingEvents:SetScript("OnEvent", function()
+    if InCombatLockdown() then return end
+
+    for button in pairs(castingButtons) do
+        button:RefreshCasting()
+    end
+end)
+
+-- Shared visual feedback; no secure click attributes are changed here.
+local feedbackButtons = setmetatable({}, { __mode = "k" })
+
+function ns.SetButtonCooldownDuration(cooldown, duration)
+    if duration then
+        cooldown:SetCooldownFromDurationObject(duration)
+    else
+        cooldown:Clear()
+    end
+end
+
+function ns.InitializeButtonSpellFeedback(button, resolveSpellID)
+    local recharge = CreateFrame(
+        "Cooldown", nil, button, "CooldownFrameTemplate"
+    )
+    recharge:SetAllPoints(button.icon)
+    recharge:EnableMouse(false)
+    recharge:SetDrawSwipe(false)
+    recharge:SetDrawEdge(true)
+    recharge:SetHideCountdownNumbers(true)
+    button.chargeCooldown = recharge
+
+    -- Create the visual outside combat, before it is ever needed.
+    local alert = CreateFrame(
+        "Frame", nil, button, "ActionButtonSpellAlertTemplate"
+    )
+    alert:EnableMouse(false)
+    alert:SetPoint("CENTER", button, "CENTER", 0, 0)
+    alert:SetSize(button:GetWidth() * 1.4, button:GetHeight() * 1.4)
+    alert:Hide()
+    button.SpellActivationAlert = alert
+
+    local staticGlow = button:CreateTexture(nil, "OVERLAY", nil, 7)
+    staticGlow:SetAtlas("UI-HUD-RotationHelper-ProcAltGlow")
+    staticGlow:SetPoint("TOPLEFT", button, "TOPLEFT", -4, 4)
+    staticGlow:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", 4, -4)
+    staticGlow:Hide()
+    button.StaticProcGlow = staticGlow
+
+    local macroName = button:CreateFontString(
+        nil, "OVERLAY", "NumberFontNormalSmall"
+    )
+    macroName:SetPoint("BOTTOM", button, "BOTTOM", 0, 2)
+    macroName:SetWidth(button:GetWidth() - 4)
+    macroName:SetWordWrap(false)
+    macroName:SetText("")
+    button.MacroName = macroName
+
+    button.UpdateProcGlow = function(self)
+        local appearance = self.MIABFeedbackAppearance or {}
+        local mode = appearance.procStyle or "ANIMATED"
+        local spellID = resolveSpellID()
+
+        local show = mode ~= "OFF" and self:IsVisible() and spellID
+            and C_SpellActivationOverlay.IsSpellOverlayed(spellID)
+
+        self.StaticProcGlow:SetShown(
+            show and mode == "STATIC" or false
+        )
+
+        if show and mode == "ANIMATED" then
+            ActionButtonSpellAlertManager:ShowAlert(self)
+        else
+            ActionButtonSpellAlertManager:HideAlert(self)
+        end
+    end
+
+    button:HookScript("OnSizeChanged", function(self, width, height)
+        self.SpellActivationAlert:SetSize(width * 1.4, height * 1.4)
+        self.MacroName:SetWidth(math.max(1, width - 4))
+    end)
+
+    button:HookScript("OnShow", function(self)
+        self:UpdateProcGlow()
+    end)
+
+    button:HookScript("OnHide", function(self)
+        ActionButtonSpellAlertManager:HideAlert(self)
+        self.StaticProcGlow:Hide()
+    end)
+
+    feedbackButtons[button] = true
+end
+
+local feedbackEvents = CreateFrame("Frame")
+feedbackEvents:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_SHOW")
+feedbackEvents:RegisterEvent("SPELL_ACTIVATION_OVERLAY_GLOW_HIDE")
+feedbackEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+feedbackEvents:RegisterEvent("SPELLS_CHANGED")
+feedbackEvents:RegisterEvent("UPDATE_MACROS")
+
+feedbackEvents:SetScript("OnEvent", function()
+    for button in pairs(feedbackButtons) do
+        button:UpdateProcGlow()
+    end
+end)
+
 function ns.InitializeButtonFlyout(button, resolveActionType)
     if not button then return end
 
@@ -29,6 +235,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     popup:Hide()
 
     local children = {}
+    button.MIABFlyoutChildren = children
 
     ns.MIABFlyoutPopups =
         ns.MIABFlyoutPopups or setmetatable({}, { __mode = "k" })
@@ -37,6 +244,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     if not ns.CloseMIABFlyouts then
         function ns.CloseMIABFlyouts(except)
             if InCombatLockdown() then return end
+
             for other in pairs(ns.MIABFlyoutPopups) do
                 if other ~= except and other:IsShown() then
                     other:Hide()
@@ -58,6 +266,15 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     end
 
     local manager = ns.MIABSecureFlyoutManager
+
+    -- Register references during setup, outside restricted click snippets.
+    -- Restricted handlers only read these references to close other popups.
+    local popupIndex =
+        (manager:GetAttribute("miab-popup-count") or 0) + 1
+
+    manager:SetFrameRef("miab-popup-" .. popupIndex, popup)
+    manager:SetAttribute("miab-popup-count", popupIndex)
+
     button:SetFrameRef("miab-manager", manager)
     button:SetFrameRef("miab-popup", popup)
     popup:SetFrameRef("miab-owner", button)
@@ -83,18 +300,23 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
             local popup = self:GetFrameRef("miab-popup")
             local manager = self:GetFrameRef("miab-manager")
 
-            if popup and manager then
-                local active = manager:GetFrameRef("miab-active")
-                if active and active ~= popup then
-                    active:Hide()
+            if popup then
+                if manager then
+                    local count = manager:GetAttribute("miab-popup-count") or 0
+
+                    for i = 1, count do
+                        local other = manager:GetFrameRef("miab-popup-" .. i)
+
+                        if other and other ~= popup and other:IsShown() then
+                            other:Hide()
+                        end
+                    end
                 end
 
                 if popup:IsShown() then
                     popup:Hide()
-                    manager:SetFrameRef("miab-active", nil)
                 else
                     popup:Show()
-                    manager:SetFrameRef("miab-active", popup)
                 end
             end
         end
@@ -112,6 +334,10 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         child:RegisterForClicks("AnyDown", "AnyUp")
         child:SetAttribute("type", "spell")
         child:SetAttribute("useOnKeyDown", false)
+
+        ns.InitializeSpellCasting(child, function()
+            return child.MIABSpellID
+        end)
 
         local bg = child:CreateTexture(nil, "BACKGROUND")
         bg:SetAllPoints()
@@ -132,23 +358,45 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         cooldown:SetAllPoints(icon)
         child.cooldown = cooldown
 
+        local count = child:CreateFontString(
+            nil, "OVERLAY", "NumberFontNormal"
+        )
+        count:SetPoint("BOTTOMRIGHT", child, "BOTTOMRIGHT", -2, 2)
+        child.Count = count
+
+        ns.InitializeButtonSpellFeedback(child, function()
+            return child.MIABSpellID
+        end)
+
+        if button.MIABFeedbackAppearance then
+            ns.ApplyButtonFeedbackAppearance(
+                child, button.MIABFeedbackAppearance
+            )
+        end
+
         child.UpdateCooldown = function(self)
             local spellID = self.MIABSpellID
 
-            if not spellID then
-                self.cooldown:Clear()
-                return
-            end
-
-            local duration = C_Spell.GetSpellCooldownDuration(spellID)
-            if duration then
-                self.cooldown:SetCooldownFromDurationObject(duration)
+            if spellID then
+                ns.SetButtonCooldownDuration(
+                    self.cooldown,
+                    C_Spell.GetSpellCooldownDuration(spellID)
+                )
+                ns.SetButtonCooldownDuration(
+                    self.chargeCooldown,
+                    C_Spell.GetSpellChargeDuration(spellID)
+                )
+                self.Count:SetText(C_Spell.GetSpellDisplayCount(spellID))
             else
                 self.cooldown:Clear()
+                self.chargeCooldown:Clear()
+                self.Count:SetText("")
             end
+
+            self:UpdateProcGlow()
         end
 
-        child:SetScript("OnShow", function(self)
+        child:HookScript("OnShow", function(self)
             self:UpdateCooldown()
         end)
 
@@ -156,18 +404,17 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
             self:UpdateCooldown()
         end)
 
-        child:SetFrameRef("miab-manager", manager)
-
-        -- Close only after Blizzard's secure spell action has executed.
+        -- Close on the same click phase that executes the secure spell action.
         popup:WrapScript(child, "OnClick", "", [[
-            local owner = self:GetParent()
-            if owner then
-                owner:Hide()
-            end
+            local shouldClick =
+                down == (self:GetAttribute("useOnKeyDown") == true)
 
-            local manager = self:GetFrameRef("miab-manager")
-            if manager then
-                manager:SetFrameRef("miab-active", nil)
+            if shouldClick then
+                local owner = self:GetParent()
+
+                if owner then
+                    owner:Hide()
+                end
             end
         ]])
 
@@ -219,12 +466,14 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         if InCombatLockdown() then return end
 
         local kind, id = resolveActionType()
+
         if kind ~= "flyout" then
             id = nil
         end
 
         if not id and kind == "flyout" and self.actionSlot then
             local actionKind, actionID = GetActionInfo(self.actionSlot)
+
             if actionKind == "flyout" then
                 id = actionID
             end
@@ -235,6 +484,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         end
 
         local direction = self:GetAttribute("flyoutDirection")
+
         if not DIRECTIONS[direction] then
             direction = "UP"
         end
@@ -297,6 +547,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
 
             child:SetAttribute("spell", data[2])
             child.MIABSpellID = data[2]
+            child:RefreshCasting()
             child.icon:SetTexture(C_Spell.GetSpellTexture(data[2]))
             child:UpdateCooldown()
             child:ClearAllPoints()
@@ -469,6 +720,13 @@ function ns.CreateActionButton(parent, name, actionSlot)
     button:SetSize(BUTTON_SIZE, BUTTON_SIZE)
     button:SetAttribute("type", "action")
     button:SetAttribute("action", actionSlot)
+    button:SetAttribute("checkselfcast", true)
+    button:SetAttribute("checkfocuscast", true)
+    button:SetAttribute("checkmouseovercast", true)
+
+    -- Preserve CalculateAction supplied by Blizzard's secure template.
+    -- An addon-defined replacement taints the protected UseAction path.
+
     button:RegisterForClicks("AnyDown", "AnyUp")
     button:SetAttribute("useOnKeyDown", false)
 
@@ -698,16 +956,37 @@ function ns.CreateActionButton(parent, name, actionSlot)
         end
     end
 
-    local function UpdateCooldown()
-        local duration =
-            C_ActionBar.GetActionCooldownDuration(
-                currentActionSlot
-            )
+    ns.InitializeButtonSpellFeedback(button, function()
+        -- Match Blizzard's action-button proc lookup for spells and macros.
+        local kind, id = GetActionInfo(currentActionSlot)
 
-        cooldown:SetCooldownFromDurationObject(duration)
+        if kind == "spell" or kind == "macro" then
+            return id
+        end
+    end)
+
+    local function UpdateCooldown()
+        ns.SetButtonCooldownDuration(
+            cooldown,
+            C_ActionBar.GetActionCooldownDuration(currentActionSlot)
+        )
+        ns.SetButtonCooldownDuration(
+            button.chargeCooldown,
+            C_ActionBar.GetActionChargeDuration(currentActionSlot)
+        )
     end
 
     local function UpdateCount()
+        local kind = GetActionInfo(currentActionSlot)
+
+        if kind == "macro" then
+            button.MacroName:SetText(
+                C_ActionBar.GetActionText(currentActionSlot)
+            )
+        else
+            button.MacroName:SetText("")
+        end
+
         if not C_ActionBar.HasAction(currentActionSlot) then
             count:SetText("")
             return
@@ -749,6 +1028,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
         UpdateUsability()
         UpdateCheckedState()
         RefreshKeybindText()
+        button:UpdateProcGlow()
     end
 
     button.actionSlot = currentActionSlot
@@ -760,6 +1040,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
     button:HookScript("PostClick", function()
         if not InCombatLockdown() then
             local kind = GetActionInfo(currentActionSlot)
+
             if kind ~= "flyout" then
                 ns.CloseMIABFlyouts()
             end
@@ -1023,6 +1304,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
     eventFrame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
     eventFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
     eventFrame:RegisterEvent("ACTIONBAR_UPDATE_STATE")
+    eventFrame:RegisterEvent("UPDATE_MACROS")
     eventFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     eventFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
     eventFrame:RegisterEvent("ACTION_USABLE_CHANGED")

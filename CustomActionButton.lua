@@ -1,5 +1,73 @@
 local addonName, ns = ...
 
+local customButtons = setmetatable({}, { __mode = "k" })
+local activeSpecID
+
+local function CurrentSpecID()
+    local index = GetSpecialization()
+    return index and GetSpecializationInfo(index)
+end
+
+local function ActivateSpecialization(settings)
+    if InCombatLockdown() then return end
+
+    activeSpecID = activeSpecID or CurrentSpecID()
+    if not activeSpecID then return end
+
+    if not settings.assignmentsBySpec then
+        -- Adopt existing contents once; other specializations start empty.
+        settings.assignmentsBySpec = {
+            [activeSpecID] = settings.assignments or {},
+        }
+    end
+
+    local assignments = settings.assignmentsBySpec[activeSpecID]
+
+    if not assignments then
+        assignments = {}
+        settings.assignmentsBySpec[activeSpecID] = assignments
+    end
+
+    -- Keep the active alias for binding labels and mount cast feedback.
+    settings.assignments = assignments
+end
+
+local specializationEvents = CreateFrame("Frame")
+specializationEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+specializationEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+specializationEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+specializationEvents:SetScript("OnEvent", function(_, event, unit)
+    if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then
+        return
+    end
+
+    if InCombatLockdown() then return end
+
+    local specID = CurrentSpecID()
+    if not specID then return end
+
+    activeSpecID = specID
+
+    for _, settings in pairs(ns.db and ns.db.bars or {}) do
+        if settings.source == "custom" then
+            ActivateSpecialization(settings)
+        end
+    end
+
+    if ns.CloseMIABFlyouts then
+        ns.CloseMIABFlyouts()
+    end
+
+    for button in pairs(customButtons) do
+        button.UpdateAssignment()
+    end
+
+    if ns.ApplyAllKeybinds then
+        ns.ApplyAllKeybinds()
+    end
+end)
+
 local function GetAssignment(barID, buttonID)
     if not ns.db or not ns.db.bars then
         return nil
@@ -8,6 +76,7 @@ local function GetAssignment(barID, buttonID)
     local settings = ns.db.bars[barID]
     if not settings then return nil end
 
+    ActivateSpecialization(settings)
     settings.assignments = settings.assignments or {}
     return settings.assignments[buttonID]
 end
@@ -20,6 +89,7 @@ local function SetAssignment(barID, buttonID, assignment)
     local settings = ns.db.bars[barID]
     if not settings then return false end
 
+    ActivateSpecialization(settings)
     settings.assignments = settings.assignments or {}
     settings.assignments[buttonID] = assignment
     return true
@@ -141,6 +211,10 @@ local function GetAssignmentSpellID(assignment)
 end
 
 local function ApplySecureAssignment(button, assignment)
+    if button.RefreshCasting then
+        button:RefreshCasting()
+    end
+
     button:SetAttribute("type", nil)
     button:SetAttribute("spell", nil)
     button:SetAttribute("item", nil)
@@ -453,6 +527,13 @@ function ns.CreateCustomActionButton(
         local assignment = GetAssignment(barID, buttonID)
         local texture = GetAssignmentIcon(assignment)
 
+        if assignment and assignment.type == "macro" then
+            local name = GetMacroInfo(assignment.id)
+            button.MacroName:SetText(name or "")
+        else
+            button.MacroName:SetText("")
+        end
+
         if texture then
             icon:SetTexture(texture)
             icon:Show()
@@ -462,8 +543,30 @@ function ns.CreateCustomActionButton(
         end
     end
 
+    ns.InitializeSpellCasting(button, function()
+        local assignment = GetAssignment(barID, buttonID)
+
+        if assignment and assignment.type == "spell" then
+            return assignment.id
+        end
+    end)
+
+    ns.InitializeButtonSpellFeedback(button, function()
+        return GetAssignmentSpellID(GetAssignment(barID, buttonID))
+    end)
+
     local function UpdateCooldown()
         local assignment = GetAssignment(barID, buttonID)
+        local spellID = GetAssignmentSpellID(assignment)
+
+        if spellID then
+            ns.SetButtonCooldownDuration(
+                button.chargeCooldown,
+                C_Spell.GetSpellChargeDuration(spellID)
+            )
+        else
+            button.chargeCooldown:Clear()
+        end
 
         if not assignment then
             cooldown:Clear()
@@ -493,8 +596,6 @@ function ns.CreateCustomActionButton(
 
             return
         end
-
-        local spellID = GetAssignmentSpellID(assignment)
 
         if spellID then
             local duration =
@@ -552,7 +653,14 @@ function ns.CreateCustomActionButton(
             return
         end
 
-        count:SetText("")
+        local spellID = GetAssignmentSpellID(assignment)
+
+        if spellID then
+            -- Pass Blizzard's display value straight to the font string.
+            count:SetText(C_Spell.GetSpellDisplayCount(spellID))
+        else
+            count:SetText("")
+        end
     end
 
     local function UpdateUsability()
@@ -704,6 +812,7 @@ function ns.CreateCustomActionButton(
     end
 
     local function UpdateVisualState()
+        button:UpdateProcGlow()
         UpdateUsability()
         UpdateRange()
         UpdateCheckedState()
@@ -1143,6 +1252,7 @@ function ns.CreateCustomActionButton(
     button.barID = barID
     button.buttonID = buttonID
 
+    customButtons[button] = true
     UpdateAssignment()
     return button
 end

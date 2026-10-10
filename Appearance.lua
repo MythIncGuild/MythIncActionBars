@@ -1,11 +1,15 @@
-
 local addonName, ns = ...
 
-local VALID_KEYBIND_POSITIONS = {
-    TOPRIGHT = true,
+local TEXT_POSITIONS = {
     TOPLEFT = true,
-    BOTTOMRIGHT = true,
+    TOP = true,
+    TOPRIGHT = true,
+    LEFT = true,
+    CENTER = true,
+    RIGHT = true,
     BOTTOMLEFT = true,
+    BOTTOM = true,
+    BOTTOMRIGHT = true,
 }
 
 local VALID_FLYOUT_DIRECTIONS = {
@@ -17,6 +21,20 @@ local VALID_FLYOUT_DIRECTIONS = {
 
 local pendingFlyoutButtons = setmetatable({}, { __mode = "k" })
 
+local TEXT_DEFAULTS = {
+    count = { size = 12, position = "BOTTOMRIGHT" },
+    cooldown = { size = 16, position = "CENTER" },
+    recharge = { size = 12, position = "TOPLEFT" },
+    macro = { size = 10, position = "BOTTOM" },
+    keybind = { size = 12, position = "TOPRIGHT" },
+}
+
+local function Number(value, fallback)
+    value = tonumber(value)
+    if not value or value ~= value then return fallback end
+    return value
+end
+
 local function EnsureAppearance(settings)
     settings.appearance = settings.appearance or {}
     local appearance = settings.appearance
@@ -26,32 +44,56 @@ local function EnsureAppearance(settings)
     end
     appearance.iconInset = nil
 
-    if appearance.iconZoom == nil then appearance.iconZoom = 0 end
-    if appearance.showBorder == nil then appearance.showBorder = true end
-    if appearance.emptyOpacity == nil then appearance.emptyOpacity = 0.85 end
-    if appearance.showCooldown == nil then appearance.showCooldown = true end
-    if appearance.showCooldownText == nil then appearance.showCooldownText = true end
-    if appearance.showCount == nil then appearance.showCount = true end
-    if appearance.countTextSize == nil then appearance.countTextSize = 12 end
-    if appearance.showKeybind == nil then appearance.showKeybind = true end
-    if appearance.keybindTextSize == nil then appearance.keybindTextSize = 12 end
+    local defaults = {
+        iconZoom = 0,
+        showBorder = true,
+        emptyOpacity = 0.85,
+        showCooldown = true,
+        showCooldownText = true,
+        showRecharge = true,
+        showRechargeText = false,
+        showCount = true,
+        showMacroName = true,
+        showKeybind = true,
+        desaturateUnusable = false,
+        rangeColoring = true,
+        usabilityColoring = true,
+        procStyle = "ANIMATED",
+        procOpacity = 1,
+    }
 
-    if not VALID_KEYBIND_POSITIONS[appearance.keybindPosition] then
-        appearance.keybindPosition = "TOPRIGHT"
+    for key, value in pairs(defaults) do
+        if appearance[key] == nil then
+            appearance[key] = value
+        end
     end
 
-    appearance.keybindColor = appearance.keybindColor or {}
-    local color = appearance.keybindColor
-    if color.r == nil then color.r = 1 end
-    if color.g == nil then color.g = 1 end
-    if color.b == nil then color.b = 1 end
-    if color.a == nil then color.a = 1 end
+    for prefix, definition in pairs(TEXT_DEFAULTS) do
+        local positionKey = prefix .. "Position"
+        local sizeKey = prefix .. "TextSize"
+        local colorKey = prefix .. "Color"
 
-    if appearance.desaturateUnusable == nil then
-        appearance.desaturateUnusable = false
+        if not TEXT_POSITIONS[appearance[positionKey]] then
+            appearance[positionKey] = definition.position
+        end
+
+        if appearance[sizeKey] == nil then
+            appearance[sizeKey] = definition.size
+        end
+
+        appearance[prefix .. "OffsetX"] =
+            Number(appearance[prefix .. "OffsetX"], 0)
+        appearance[prefix .. "OffsetY"] =
+            Number(appearance[prefix .. "OffsetY"], 0)
+
+        appearance[colorKey] = appearance[colorKey] or {}
+        local color = appearance[colorKey]
+
+        if color.r == nil then color.r = 1 end
+        if color.g == nil then color.g = 1 end
+        if color.b == nil then color.b = 1 end
+        if color.a == nil then color.a = 1 end
     end
-    if appearance.rangeColoring == nil then appearance.rangeColoring = true end
-    if appearance.usabilityColoring == nil then appearance.usabilityColoring = true end
 
     if not VALID_FLYOUT_DIRECTIONS[appearance.flyoutDirection] then
         appearance.flyoutDirection = "UP"
@@ -62,7 +104,10 @@ end
 
 local function ApplyIconZoom(button, appearance)
     if not button.icon then return end
-    local zoom = math.max(0, math.min(30, tonumber(appearance.iconZoom) or 0))
+
+    local zoom = math.max(
+        0, math.min(30, Number(appearance.iconZoom, 0))
+    )
     local crop = zoom / 200
     button.icon:SetTexCoord(crop, 1 - crop, crop, 1 - crop)
 end
@@ -75,46 +120,116 @@ end
 
 local function ApplyBackground(button, appearance)
     if button.Background then
-        button.Background:SetAlpha(tonumber(appearance.emptyOpacity) or 0.85)
-    end
-end
-
-local function ApplyCooldown(button, appearance)
-    if not button.cooldown then return end
-    if button.cooldown.SetDrawSwipe then
-        button.cooldown:SetDrawSwipe(appearance.showCooldown ~= false)
-    end
-    if button.cooldown.SetHideCountdownNumbers then
-        button.cooldown:SetHideCountdownNumbers(
-            appearance.showCooldownText == false
+        button.Background:SetAlpha(
+            Number(appearance.emptyOpacity, 0.85)
         )
     end
 end
 
-local function ApplyCountText(button, appearance)
-    if not button.Count then return end
-    button.Count:SetShown(appearance.showCount ~= false)
-    local fontPath = ns.Media and ns.Media.font or STANDARD_TEXT_FONT
-    button.Count:SetFont(
-        fontPath, tonumber(appearance.countTextSize) or 12, "OUTLINE"
+local function StyleText(
+    text, button, appearance, prefix, size, position
+)
+    if not text then return end
+
+    local font = ns.Media and ns.Media.font or STANDARD_TEXT_FONT
+    text:SetFont(
+        font,
+        Number(appearance[prefix .. "TextSize"], size),
+        "OUTLINE"
+    )
+
+    local point = appearance[prefix .. "Position"] or position
+    if not TEXT_POSITIONS[point] then point = position end
+
+    local inset = prefix == "keybind" and 3 or 2
+    local left = point:find("LEFT", 1, true) ~= nil
+    local right = point:find("RIGHT", 1, true) ~= nil
+    local top = point:find("TOP", 1, true) ~= nil
+    local bottom = point:find("BOTTOM", 1, true) ~= nil
+
+    local x = left and inset or (right and -inset or 0)
+    local y = top and -inset or (bottom and inset or 0)
+
+    x = x + Number(appearance[prefix .. "OffsetX"], 0)
+    y = y + Number(appearance[prefix .. "OffsetY"], 0)
+
+    text:ClearAllPoints()
+    text:SetPoint(point, button, point, x, y)
+    text:SetJustifyH(left and "LEFT" or (right and "RIGHT" or "CENTER"))
+
+    local color = appearance[prefix .. "Color"] or {}
+    text:SetTextColor(
+        color.r or 1,
+        color.g or 1,
+        color.b or 1,
+        color.a or 1
     )
 end
 
-local function AnchorHotKey(hotKey, position)
-    hotKey:ClearAllPoints()
-    local parent = hotKey:GetParent()
-    if position == "TOPLEFT" then
-        hotKey:SetPoint("TOPLEFT", parent, "TOPLEFT", 3, -3)
-        hotKey:SetJustifyH("LEFT")
-    elseif position == "BOTTOMRIGHT" then
-        hotKey:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -3, 3)
-        hotKey:SetJustifyH("RIGHT")
-    elseif position == "BOTTOMLEFT" then
-        hotKey:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", 3, 3)
-        hotKey:SetJustifyH("LEFT")
-    else
-        hotKey:SetPoint("TOPRIGHT", parent, "TOPRIGHT", -3, -3)
-        hotKey:SetJustifyH("RIGHT")
+local function ApplyCooldown(button, appearance)
+    if button.chargeCooldown then
+        button.chargeCooldown:SetDrawEdge(
+            appearance.showRecharge ~= false
+        )
+        button.chargeCooldown:SetHideCountdownNumbers(
+            appearance.showRechargeText ~= true
+        )
+
+        StyleText(
+            button.chargeCooldown:GetCountdownFontString(),
+            button, appearance, "recharge", 12, "TOPLEFT"
+        )
+    end
+
+    if not button.cooldown then return end
+
+    button.cooldown:SetDrawSwipe(appearance.showCooldown ~= false)
+    button.cooldown:SetHideCountdownNumbers(
+        appearance.showCooldownText == false
+    )
+
+    StyleText(
+        button.cooldown:GetCountdownFontString(),
+        button, appearance, "cooldown", 16, "CENTER"
+    )
+end
+
+local function ApplyCountText(button, appearance)
+    if not button.Count then return end
+
+    button.Count:SetShown(appearance.showCount ~= false)
+    StyleText(
+        button.Count, button, appearance, "count", 12, "BOTTOMRIGHT"
+    )
+end
+
+function ns.ApplyButtonFeedbackAppearance(button, appearance)
+    button.MIABFeedbackAppearance = appearance
+
+    ApplyCooldown(button, appearance)
+    ApplyCountText(button, appearance)
+
+    if button.MacroName then
+        button.MacroName:SetShown(appearance.showMacroName ~= false)
+        StyleText(
+            button.MacroName, button, appearance, "macro", 10, "BOTTOM"
+        )
+    end
+
+    local opacity = math.max(
+        0, math.min(1, Number(appearance.procOpacity, 1))
+    )
+
+    if button.SpellActivationAlert then
+        button.SpellActivationAlert:SetAlpha(opacity)
+    end
+
+    if button.StaticProcGlow then
+        button.StaticProcGlow:SetAlpha(opacity)
+    end
+
+    if button.UpdateProcGlow then
+        button:UpdateProcGlow()
     end
 end
 
@@ -123,15 +238,9 @@ local function ApplyKeybindText(button, appearance)
     if not hotKey then return end
 
     hotKey:SetDrawLayer("OVERLAY", 7)
-    local fontPath = ns.Media and ns.Media.font or STANDARD_TEXT_FONT
-    hotKey:SetFont(
-        fontPath, tonumber(appearance.keybindTextSize) or 12, "OUTLINE"
+    StyleText(
+        hotKey, button, appearance, "keybind", 12, "TOPRIGHT"
     )
-    local color = appearance.keybindColor
-    hotKey:SetTextColor(
-        color.r or 1, color.g or 1, color.b or 1, color.a or 1
-    )
-    AnchorHotKey(hotKey, appearance.keybindPosition)
     hotKey:SetShown(appearance.showKeybind ~= false)
 end
 
@@ -153,8 +262,6 @@ local function ApplyFlyoutDirection(button, appearance)
         button:SetAttribute("flyoutDirection", direction)
     end
 
-    -- The button files initialize popup support.
-    -- Only update popup presentation when the button supports it.
     if button.SetPopupDirection then
         button:SetPopupDirection(direction)
     end
@@ -166,6 +273,7 @@ end
 
 local flyoutEvents = CreateFrame("Frame")
 flyoutEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+
 flyoutEvents:SetScript("OnEvent", function()
     if InCombatLockdown() then return end
 
@@ -190,14 +298,18 @@ function ns.ApplyButtonAppearance(button, settings)
     if not button or not settings then return end
 
     local appearance = EnsureAppearance(settings)
+    button.MIABFeedbackAppearance = appearance
 
     ApplyIconZoom(button, appearance)
     ApplyBorder(button, appearance)
     ApplyBackground(button, appearance)
-    ApplyCooldown(button, appearance)
-    ApplyCountText(button, appearance)
+    ns.ApplyButtonFeedbackAppearance(button, appearance)
     ApplyKeybindText(button, appearance)
     ApplyFlyoutDirection(button, appearance)
+
+    for _, child in ipairs(button.MIABFlyoutChildren or {}) do
+        ns.ApplyButtonFeedbackAppearance(child, appearance)
+    end
 
     if button.RefreshVisualState then
         button.RefreshVisualState()
@@ -209,7 +321,6 @@ function ns.ApplyBarAppearance(barID)
 
     local settings = ns.db.bars[barID]
     local bar = ns.Bars and ns.Bars[barID]
-
     if not settings or not bar then return end
 
     EnsureAppearance(settings)
@@ -270,7 +381,8 @@ local function ClampOpacity(value, fallback)
 end
 
 function ns.GetBarFadeSettings(barID)
-    local target = ns.SpecialConfigTargets and ns.SpecialConfigTargets[barID]
+    local target = ns.SpecialConfigTargets
+        and ns.SpecialConfigTargets[barID]
     local settings = target and target.GetSettings()
         or (ns.db and ns.db.bars and ns.db.bars[barID])
 
@@ -299,6 +411,7 @@ local function FadeFrames(barID)
     end
 
     local frames = {}
+
     for _, name in ipairs(names) do
         if _G[name] then frames[#frames + 1] = _G[name] end
     end
@@ -307,7 +420,8 @@ local function FadeFrames(barID)
 end
 
 local function IsUnlocked(barID)
-    local target = ns.SpecialConfigTargets and ns.SpecialConfigTargets[barID]
+    local target = ns.SpecialConfigTargets
+        and ns.SpecialConfigTargets[barID]
     if target then return target.IsUnlocked() end
     return ns.IsBarUnlocked and ns.IsBarUnlocked(barID)
 end
@@ -377,7 +491,8 @@ function ns.RefreshBarFade(barID, immediate)
     local visibility = ns.GetBarFadeSettings(barID)
     if not visibility then return end
 
-    local target = ns.SpecialConfigTargets and ns.SpecialConfigTargets[barID]
+    local target = ns.SpecialConfigTargets
+        and ns.SpecialConfigTargets[barID]
     if target and not target.GetSettings().enabled then return end
 
     local frames = FadeFrames(barID)
@@ -407,7 +522,6 @@ function ns.SetBarFadeOption(barID, option, value)
         end
 
         visibility[option] = ClampOpacity(value, 1)
-
     elseif option == "fadeOnMouseover"
         or option == "showFullyInCombat"
     then
@@ -427,7 +541,6 @@ local fadeElapsed = 0
 
 fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     fadeElapsed = fadeElapsed + elapsed
-
     if fadeElapsed < 0.05 then return end
 
     local step = fadeElapsed
@@ -454,7 +567,6 @@ fadeWatcher:SetScript("OnUpdate", function(_, elapsed)
     for barID in pairs(SPECIAL_FADE_FRAMES) do
         local target = ns.SpecialConfigTargets
             and ns.SpecialConfigTargets[barID]
-
         local settings = target and target.GetSettings()
 
         if settings and settings.enabled then
