@@ -1,5 +1,4 @@
 local addonName, ns = ...
-
 ns.SpecialConfigTargets = ns.SpecialConfigTargets or {}
 
 local function Message(text)
@@ -49,11 +48,9 @@ local function ScrollArea(page, height)
     local function Update()
         scale = math.min(1, math.max(1, viewport:GetWidth()) / 1036)
         content:SetScale(scale)
-
         maximum = math.max(
             0, content:GetHeight() * scale - viewport:GetHeight()
         )
-
         slider:SetMinMaxValues(0, maximum)
         slider:SetShown(maximum > 0)
         SetOffset(offset)
@@ -80,14 +77,11 @@ local function WatchPositionControls(page, getSettings, controls)
         local position = settings.position or settings
         if settings ~= previousSettings
             or position.x ~= previousX
-            or position.y ~= previousY then
-
+            or position.y ~= previousY
+        then
             previousSettings = settings
             previousX, previousY = position.x, position.y
-
-            for _, control in ipairs(controls) do
-                control:Refresh()
-            end
+            for _, control in ipairs(controls) do control:Refresh() end
         end
     end)
 end
@@ -135,7 +129,6 @@ function ns.CreateLayoutConfigPage(parent, context)
                 end
 
                 local settings = Settings()
-
                 if key == "x" or key == "y" then
                     settings.position[key] = value
                 elseif key == "scale" then
@@ -155,14 +148,13 @@ function ns.CreateLayoutConfigPage(parent, context)
                 end
 
                 UpdateBar()
-
                 if key == "buttonCount" and context.RefreshConfig then
                     context.RefreshConfig()
                 end
             end,
-            key == "scale" and function(value)
-                return string.format("%.2f", value)
-            end or nil,
+            key == "scale"
+                and function(value) return string.format("%.2f", value) end
+                or nil,
             width or 190
         )
 
@@ -188,9 +180,7 @@ function ns.CreateLayoutConfigPage(parent, context)
     )
 
     controls[#controls + 1] = widgets.CreateCheckButton(
-        alignment,
-        "Snap while dragging (hold Shift to bypass)",
-        24, -40,
+        alignment, "Snap while dragging (hold Shift to bypass)", 24, -40,
         function() return ns.GetBarSnapEnabled(ID()) end,
         function(value) ns.SetBarSnapEnabled(ID(), value) end
     )
@@ -213,11 +203,9 @@ function ns.CreateLayoutConfigPage(parent, context)
     local function RefreshReference()
         local choices = ns.GetPositionReferenceBars(ID())
         local valid = false
-
         for _, id in ipairs(choices) do
             if id == referenceID then valid = true end
         end
-
         if not valid then referenceID = choices[1] end
 
         referenceButton:SetText(
@@ -237,7 +225,6 @@ function ns.CreateLayoutConfigPage(parent, context)
     local background = picker:CreateTexture(nil, "BACKGROUND")
     background:SetAllPoints()
     background:SetColorTexture(0.035, 0.039, 0.040, 1)
-
     widgets.CreateText(picker, "Reference Bar", 12, 12, -10)
 
     local list = CreateFrame("ScrollFrame", nil, picker)
@@ -303,11 +290,9 @@ function ns.CreateLayoutConfigPage(parent, context)
 
             for index, id in ipairs(choices) do
                 local row = rows[index]
-
                 if not row then
                     row = widgets.CreateButton(
-                        listContent, "", 288, 28,
-                        0, -(index - 1) * 32,
+                        listContent, "", 288, 28, 0, -(index - 1) * 32,
                         function(self)
                             referenceID = self.barID
                             picker:Hide()
@@ -338,9 +323,7 @@ function ns.CreateLayoutConfigPage(parent, context)
             listSlider:SetValue(0)
 
             local rootScale = UIParent:GetEffectiveScale()
-            local buttonScale =
-                referenceButton:GetEffectiveScale() / rootScale
-
+            local buttonScale = referenceButton:GetEffectiveScale() / rootScale
             picker:SetScale(buttonScale)
             picker:ClearAllPoints()
 
@@ -426,14 +409,11 @@ function ns.CreateLayoutConfigPage(parent, context)
     page.Refresh = function()
         local settings = Settings()
         if not settings then return end
-
         picker:Hide()
         ns.SetBarPlacementReference(ID())
         settings.columns = math.min(settings.columns, settings.buttonCount)
         columns:SetMinMaxValues(1, settings.buttonCount)
-
         for _, control in ipairs(controls) do control:Refresh() end
-
         RefreshReference()
         UpdateScroll()
     end
@@ -443,6 +423,10 @@ function ns.CreateLayoutConfigPage(parent, context)
 end
 
 function ns.CreateSpecialConfigPage(parent, context)
+    for _, target in pairs(ns.SpecialConfigTargets or {}) do
+        target.visibility = true
+    end
+
     local widgets = ns.ConfigWidgets
     local page = CreateFrame("Frame", nil, parent)
     page:SetAllPoints()
@@ -490,9 +474,9 @@ function ns.CreateSpecialConfigPage(parent, context)
                 section, label, low, high, step, x, y,
                 function() return target.GetSettings()[key] end,
                 function(value) SetValue(key, value) end,
-                key == "scale" and function(value)
-                    return string.format("%.2f", value)
-                end or nil,
+                key == "scale"
+                    and function(value) return string.format("%.2f", value) end
+                    or nil,
                 420
             )
 
@@ -516,34 +500,21 @@ function ns.CreateSpecialConfigPage(parent, context)
             )
 
             if target.grid then
-                Slider(
-                    section, "Buttons Per Row", "columns",
-                    1, 10, 1, 24, -42
-                )
+                Slider(section, "Buttons Per Row", "columns", 1, 10, 1, 24, -42)
             end
 
-            Slider(
-                section, "X Position", "x",
-                -1000, 1000, 1, 24, -146
-            )
-            Slider(
-                section, "Y Position", "y",
-                -1000, 1000, 1, 554, -146
-            )
+            Slider(section, "X Position", "x", -1000, 1000, 1, 24, -146)
+            Slider(section, "Y Position", "y", -1000, 1000, 1, 554, -146)
 
             widgets.CreateButton(
                 section, "Reset Position", 160, 30, 24, -250,
                 function()
                     if InCombatLockdown() then return end
-
                     local settings = target.GetSettings()
                     settings.x = target.defaults.x
                     settings.y = target.defaults.y
                     target.Refresh()
-
-                    if context.RefreshConfig then
-                        context.RefreshConfig()
-                    end
+                    if context.RefreshConfig then context.RefreshConfig() end
                 end
             )
 
@@ -559,14 +530,8 @@ function ns.CreateSpecialConfigPage(parent, context)
             )
 
             if target.grid then
-                Slider(
-                    section, "Button Size", "buttonSize",
-                    24, 64, 1, 24, -42
-                )
-                Slider(
-                    section, "Spacing", "spacing",
-                    0, 20, 1, 554, -42
-                )
+                Slider(section, "Button Size", "buttonSize", 24, 64, 1, 24, -42)
+                Slider(section, "Spacing", "spacing", 0, 20, 1, 554, -42)
             end
 
             Slider(section, "Scale", "scale", 0.5, 2, 0.05, 24, -146)
@@ -578,21 +543,44 @@ function ns.CreateSpecialConfigPage(parent, context)
             )
 
         elseif category == "Visibility" then
+            local fadeY = 0
+
+            if target.grid then
+                local section = widgets.CreateSection(
+                    frame, target.name .. " Visibility", 1036, 250, 0, 0
+                )
+                Check(section, "Hide while mounted", "hideMounted", 24, -48)
+                Check(section, "Hide in vehicles / override states", "hideVehicle", 24, -94)
+                Check(section, "Show only in combat", "combatOnly", 24, -140)
+
+                widgets.CreateText(
+                    section,
+                    "The bar also follows Blizzard's pet / form availability and pet-battle visibility.",
+                    11, 24, -194, true
+                )
+                fadeY = -266
+            else
+                widgets.CreateText(
+                    frame,
+                    "This control follows Blizzard's ability availability. Fading does not force an unavailable ability to appear.",
+                    11, 24, -12, true
+                )
+                fadeY = -50
+            end
+
             local section = widgets.CreateSection(
-                frame, target.name .. " Visibility", 1036, 250, 0, 0
+                frame, "Opacity and Mouseover Fading", 1036, 240, 0, fadeY
             )
 
-            Check(section, "Hide while mounted", "hideMounted", 24, -48)
-            Check(
-                section, "Hide in vehicles / override states",
-                "hideVehicle", 24, -94
-            )
-            Check(section, "Show only in combat", "combatOnly", 24, -140)
-
-            widgets.CreateText(
+            ns.CreateFadeConfigControls(
                 section,
-                "The bar also follows Blizzard's pet / form availability and pet-battle visibility.",
-                11, 24, -194, true
+                function()
+                    for key, entry in pairs(ns.SpecialConfigTargets) do
+                        if entry == target then return key end
+                    end
+                end,
+                frame.controls,
+                function() frame:Refresh() end
             )
 
         elseif category == "Action Pages" then
@@ -644,7 +632,8 @@ function ns.CreateSpecialConfigPage(parent, context)
                     function()
                         if InCombatLockdown()
                             or not target.GetSettings().enabled
-                            or slot > target.Count() then
+                            or slot > target.Count()
+                        then
                             return
                         end
 
@@ -700,7 +689,6 @@ function ns.CreateSpecialConfigPage(parent, context)
             StopCapture()
         else
             local binding = ns.BuildCapturedKey(key)
-
             if key == "DELETE" or key == "BACKSPACE" then
                 binding = nil
             elseif not binding then

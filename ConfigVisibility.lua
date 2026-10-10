@@ -1,5 +1,61 @@
 local addonName, ns = ...
 
+function ns.CreateFadeConfigControls(section, getBarID, controls, refresh)
+    local widgets = ns.ConfigWidgets
+
+    local function Get()
+        return ns.GetBarFadeSettings(getBarID())
+    end
+
+    local function Set(option, value)
+        ns.SetBarFadeOption(getBarID(), option, value)
+        refresh()
+    end
+
+    for _, option in ipairs({
+        { "Fade when the mouse is away", "fadeOnMouseover", 24 },
+        { "Show fully in combat", "showFullyInCombat", 520 },
+    }) do
+        local key = option[2]
+        controls[#controls + 1] = widgets.CreateCheckButton(
+            section, option[1], option[3], -48,
+            function()
+                local settings = Get()
+                return settings and settings[key]
+            end,
+            function(value) Set(key, value) end
+        )
+    end
+
+    for _, option in ipairs({
+        { "Normal Opacity", "opacity", 24 },
+        { "Faded Opacity", "fadedOpacity", 520 },
+    }) do
+        local key = option[2]
+        controls[#controls + 1] = widgets.CreateSlider(
+            section, option[1], 0, 100, 1, option[3], -118,
+            function()
+                local settings = Get()
+                return (settings and settings[key] or 1) * 100
+            end,
+            function(value) Set(key, value / 100) end,
+            function(value)
+                return string.format("%d%%", math.floor(value + 0.5))
+            end,
+            440
+        )
+    end
+
+    local text = widgets.CreateText(
+        section,
+        "Fading changes opacity; existing hide rules still apply. Hotkeys continue to work.\n"
+            .. "Bars show fully while unlocked, in /kb, or while dragging abilities. Faded opacity cannot exceed normal opacity.",
+        11, 24, -192, true
+    )
+    text:SetWidth(950)
+    text:SetJustifyH("LEFT")
+end
+
 function ns.CreateVisibilityConfigPage(parent, context)
     local widgets = ns.ConfigWidgets
     local media = ns.Media
@@ -46,9 +102,7 @@ function ns.CreateVisibilityConfigPage(parent, context)
     local dragOffset = 0
 
     local function GetMaxScroll()
-        return math.max(
-            0, content:GetHeight() - page:GetHeight()
-        )
+        return math.max(0, content:GetHeight() - page:GetHeight())
     end
 
     local function UpdateScrollbar()
@@ -58,12 +112,14 @@ function ns.CreateVisibilityConfigPage(parent, context)
         local maxScroll = GetMaxScroll()
 
         if viewportHeight <= 0 or contentHeight <= 0
-            or trackHeight <= 0 or maxScroll <= 0 then
+            or trackHeight <= 0 or maxScroll <= 0
+        then
             scrollTrack:Hide()
             return
         end
 
         scrollTrack:Show()
+
         local visibleRatio = math.min(1, viewportHeight / contentHeight)
         local thumbHeight = math.min(
             trackHeight, math.max(28, trackHeight * visibleRatio)
@@ -71,37 +127,27 @@ function ns.CreateVisibilityConfigPage(parent, context)
         scrollThumb:SetHeight(thumbHeight)
 
         local availableTravel = math.max(0, trackHeight - thumbHeight)
-        local scrollRatio = maxScroll > 0
-            and scrollOffset / maxScroll or 0
+        local thumbOffset = availableTravel * (scrollOffset / maxScroll)
 
         scrollThumb:ClearAllPoints()
-        scrollThumb:SetPoint(
-            "TOP", scrollTrack, "TOP", 0,
-            -(availableTravel * scrollRatio)
-        )
+        scrollThumb:SetPoint("TOP", scrollTrack, "TOP", 0, -thumbOffset)
     end
 
     local function ApplyScroll()
-        scrollOffset = math.max(
-            0, math.min(scrollOffset, GetMaxScroll())
-        )
+        scrollOffset = math.max(0, math.min(scrollOffset, GetMaxScroll()))
         content:ClearAllPoints()
-        content:SetPoint(
-            "TOPLEFT", page, "TOPLEFT", 0, scrollOffset
-        )
+        content:SetPoint("TOPLEFT", page, "TOPLEFT", 0, scrollOffset)
         UpdateScrollbar()
     end
 
-    local function SetScrollFromThumbPosition(
-        cursorY, preserveDragOffset
-    )
+    local function SetScrollFromThumbPosition(cursorY, preserveDragOffset)
         local trackTop = scrollTrack:GetTop()
         local trackHeight = scrollTrack:GetHeight()
         local thumbHeight = scrollThumb:GetHeight()
         if not trackTop or trackHeight <= 0 then return end
 
-        local effectiveScale = scrollTrack:GetEffectiveScale()
-        local offset = trackTop - cursorY / effectiveScale
+        local scaledCursorY = cursorY / scrollTrack:GetEffectiveScale()
+        local offset = trackTop - scaledCursorY
 
         if preserveDragOffset then
             offset = offset - dragOffset
@@ -111,9 +157,8 @@ function ns.CreateVisibilityConfigPage(parent, context)
 
         local availableTravel = math.max(0, trackHeight - thumbHeight)
         offset = math.max(0, math.min(offset, availableTravel))
-        local ratio = availableTravel > 0
-            and offset / availableTravel or 0
 
+        local ratio = availableTravel > 0 and offset / availableTravel or 0
         scrollOffset = GetMaxScroll() * ratio
         ApplyScroll()
     end
@@ -153,9 +198,7 @@ function ns.CreateVisibilityConfigPage(parent, context)
     end)
 
     scrollThumb:SetScript("OnEnter", function(self)
-        self:SetBackdropColor(
-            unpack(colors.hoverBorder or colors.accent)
-        )
+        self:SetBackdropColor(unpack(colors.hoverBorder or colors.accent))
     end)
 
     scrollThumb:SetScript("OnLeave", function(self)
@@ -168,49 +211,40 @@ function ns.CreateVisibilityConfigPage(parent, context)
         content, "Base Visibility", 1012, 190, 0, 0
     )
 
-    local baseDescription = baseSection:CreateFontString(nil, "OVERLAY")
-    baseDescription:SetFont(font, 11, "OUTLINE")
-    baseDescription:SetTextColor(unpack(colors.muted))
-    baseDescription:SetPoint(
-        "TOPLEFT", baseSection, "TOPLEFT", 24, -42
-    )
-    baseDescription:SetWidth(950)
-    baseDescription:SetJustifyH("LEFT")
-    baseDescription:SetText(
-        "Choose the bar's normal combat visibility. "
-            .. "Additional conditions below can hide the bar regardless of this setting."
+    local function Description(section, text, y)
+        local label = section:CreateFontString(nil, "OVERLAY")
+        label:SetFont(font, 11, "OUTLINE")
+        label:SetTextColor(unpack(colors.muted))
+        label:SetPoint("TOPLEFT", section, "TOPLEFT", 24, y)
+        label:SetWidth(950)
+        label:SetJustifyH("LEFT")
+        label:SetText(text)
+        return label
+    end
+
+    Description(
+        baseSection,
+        "Choose the bar's normal combat visibility. Additional conditions below can hide the bar regardless of this setting.",
+        -42
     )
 
     local statusText = baseSection:CreateFontString(nil, "OVERLAY")
     statusText:SetFont(font, 11, "OUTLINE")
     statusText:SetTextColor(unpack(colors.text))
-    statusText:SetPoint(
-        "TOPLEFT", baseSection, "TOPLEFT", 24, -132
-    )
+    statusText:SetPoint("TOPLEFT", baseSection, "TOPLEFT", 24, -132)
 
     local additionalSection = widgets.CreateSection(
         content, "Additional Hide Conditions", 1012, 190, 0, -206
     )
 
-    local additionalDescription = additionalSection:CreateFontString(
-        nil, "OVERLAY"
-    )
-    additionalDescription:SetFont(font, 11, "OUTLINE")
-    additionalDescription:SetTextColor(unpack(colors.muted))
-    additionalDescription:SetPoint(
-        "TOPLEFT", additionalSection, "TOPLEFT", 24, -42
-    )
-    additionalDescription:SetWidth(950)
-    additionalDescription:SetJustifyH("LEFT")
-    additionalDescription:SetText(
-        "These conditions are combined with the base visibility rule. "
-            .. "Multiple conditions may be enabled at the same time."
+    Description(
+        additionalSection,
+        "These conditions are combined with the base visibility rule. Multiple conditions may be enabled at the same time.",
+        -42
     )
 
     local function GetVisibility()
-        return ns.GetBarVisibilitySettings(
-            context.GetSelectedBarID()
-        )
+        return ns.GetBarVisibilitySettings(context.GetSelectedBarID())
     end
 
     local function GetMode()
@@ -221,8 +255,8 @@ function ns.CreateVisibilityConfigPage(parent, context)
     local function Refresh()
         local visibility = GetVisibility()
         if not visibility then return end
-        local mode = GetMode()
 
+        local mode = GetMode()
         for buttonMode, button in pairs(modeButtons) do
             button:SetSelected(buttonMode == mode)
         end
@@ -253,116 +287,44 @@ function ns.CreateVisibilityConfigPage(parent, context)
         Refresh()
     end
 
-    modeButtons.always = widgets.CreateTabButton(
-        baseSection, "Always Show", 280, 38, 24, -78,
-        function() SetMode("always") end
-    )
-    modeButtons.combat = widgets.CreateTabButton(
-        baseSection, "Hide Out of Combat", 280, 38, 316, -78,
-        function() SetMode("combat") end
-    )
-    modeButtons.nocombat = widgets.CreateTabButton(
-        baseSection, "Hide In Combat", 280, 38, 608, -78,
-        function() SetMode("nocombat") end
-    )
+    for _, definition in ipairs({
+        { "always", "Always Show", 24 },
+        { "combat", "Hide Out of Combat", 316 },
+        { "nocombat", "Hide In Combat", 608 },
+    }) do
+        local mode = definition[1]
+        modeButtons[mode] = widgets.CreateTabButton(
+            baseSection, definition[2], 280, 38, definition[3], -78,
+            function() SetMode(mode) end
+        )
+    end
 
-    controls[#controls + 1] = widgets.CreateCheckButton(
-        additionalSection, "Hide While Mounted", 24, -92,
-        function()
-            local visibility = GetVisibility()
-            return visibility and visibility.hideMounted or false
-        end,
-        function(value)
-            ns.SetBarVisibilityOption(
-                context.GetSelectedBarID(), "hideMounted", value
-            )
-        end
-    )
-
-    controls[#controls + 1] = widgets.CreateCheckButton(
-        additionalSection, "Hide in Vehicle / Override Bar", 330, -92,
-        function()
-            local visibility = GetVisibility()
-            return visibility and visibility.hideVehicle or false
-        end,
-        function(value)
-            ns.SetBarVisibilityOption(
-                context.GetSelectedBarID(), "hideVehicle", value
-            )
-        end
-    )
-
-    controls[#controls + 1] = widgets.CreateCheckButton(
-        additionalSection, "Hide During Pet Battles", 690, -92,
-        function()
-            local visibility = GetVisibility()
-            return visibility and visibility.hidePetBattle or false
-        end,
-        function(value)
-            ns.SetBarVisibilityOption(
-                context.GetSelectedBarID(), "hidePetBattle", value
-            )
-        end
-    )
+    for _, definition in ipairs({
+        { "Hide While Mounted", "hideMounted", 24 },
+        { "Hide in Vehicle / Override Bar", "hideVehicle", 330 },
+        { "Hide During Pet Battles", "hidePetBattle", 690 },
+    }) do
+        local key = definition[2]
+        controls[#controls + 1] = widgets.CreateCheckButton(
+            additionalSection, definition[1], definition[3], -92,
+            function()
+                local visibility = GetVisibility()
+                return visibility and visibility[key] or false
+            end,
+            function(value)
+                ns.SetBarVisibilityOption(
+                    context.GetSelectedBarID(), key, value
+                )
+            end
+        )
+    end
 
     local fadeSection = widgets.CreateSection(
         content, "Opacity and Mouseover Fading", 1012, 240, 0, -412
     )
-
-    local function GetFade()
-        return ns.GetBarFadeSettings(context.GetSelectedBarID())
-    end
-
-    local function SetFade(option, value)
-        ns.SetBarFadeOption(context.GetSelectedBarID(), option, value)
-        Refresh()
-    end
-
-    controls[#controls + 1] = widgets.CreateCheckButton(
-        fadeSection, "Fade when the mouse is away", 24, -48,
-        function()
-            local settings = GetFade()
-            return settings and settings.fadeOnMouseover
-        end,
-        function(value) SetFade("fadeOnMouseover", value) end
+    ns.CreateFadeConfigControls(
+        fadeSection, context.GetSelectedBarID, controls, Refresh
     )
-
-    controls[#controls + 1] = widgets.CreateCheckButton(
-        fadeSection, "Show fully in combat", 520, -48,
-        function()
-            local settings = GetFade()
-            return settings and settings.showFullyInCombat
-        end,
-        function(value) SetFade("showFullyInCombat", value) end
-    )
-
-    local function Percent(value)
-        return string.format("%d%%", math.floor(value + 0.5))
-    end
-
-    for _, option in ipairs({
-        { "Normal Opacity", "opacity", 24 },
-        { "Faded Opacity", "fadedOpacity", 520 },
-    }) do
-        controls[#controls + 1] = widgets.CreateSlider(
-            fadeSection, option[1], 0, 100, 1, option[3], -118,
-            function()
-                local settings = GetFade()
-                return (settings and settings[option[2]] or 1) * 100
-            end,
-            function(value) SetFade(option[2], value / 100) end,
-            Percent, 440
-        )
-    end
-
-    local fadeDescription = widgets.CreateText(
-        fadeSection,
-        "Fading changes opacity; your existing hide rules still apply. Hotkeys continue to work.\n"
-            .. "Bars show fully while unlocked, in /kb, or while dragging abilities. Faded opacity cannot exceed normal opacity.",
-        11, 24, -192, true
-    )
-    fadeDescription:SetWidth(950)
-    fadeDescription:SetJustifyH("LEFT")
 
     page.Refresh = Refresh
     page.ResetScroll = function()
