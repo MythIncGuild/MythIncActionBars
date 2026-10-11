@@ -1277,7 +1277,6 @@ local function GetSetIcon(assignment)
             C_MountJournal.GetMountInfoByID(assignment.id)
         return texture
     elseif assignment.type == "battlepet" then
-        local _, _, _, _, _, _, _, _, texture =
             C_PetJournal.GetPetInfoByPetID(assignment.id)
         return texture
     elseif assignment.type == "action" then
@@ -1648,12 +1647,10 @@ function ns.CreateActionButton(parent, name, actionSlot)
             return GetSetSpell(CurrentSetAssignment())
         end
 
-        local kind, id = GetActionInfo(currentActionSlot)
+        local kind = GetActionInfo(currentActionSlot)
 
-        if kind == "spell" then
-            return id
-        elseif kind == "macro" then
-            return id and GetMacroSpell(id)
+        if kind == "spell" or kind == "macro" then
+            return C_ActionBar.GetSpell(currentActionSlot)
         end
     end)
 
