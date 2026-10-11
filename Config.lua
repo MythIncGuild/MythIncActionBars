@@ -72,6 +72,8 @@ local minimizeButton
 local resizeGrip
 local logoTexture
 local applyToAllButton
+local spellbookLayoutButton
+local moveWindowButton
 
 local bulkOverlay
 local bulkSourceLabel
@@ -85,15 +87,13 @@ local bulkSourceID
 local bulkSourcePage = 1
 
 local isMinimized = false
+local spellbookLayout = false
 
 local WINDOW_WIDTH = 1080
 local WINDOW_HEIGHT = 720
 local MINIMIZED_HEIGHT = 64
 local MIN_WINDOW_HEIGHT = 480
 local SCREEN_MARGIN = 32
-
--- The configured height is measured in baseline (1080x720) UI units.
--- Below 720, the entire window scales instead of compressing controls.
 local preferredWindowHeight = WINDOW_HEIGHT
 local resizeInProgress = false
 local resizeStartCursorY = 0
@@ -879,7 +879,6 @@ local function ApplyBulkSettings(kind)
         return
     end
 
-    -- Read the selected source's current settings at the time of copying.
     ns.GetBarAppearance(sourceID)
     ns.GetBarVisibilitySettings(sourceID)
     ns.GetBarFadeSettings(sourceID)
@@ -1151,7 +1150,6 @@ local function ShowBulkDialog()
         end)
     end
 
-    -- Each opening starts from the bar selected in the main window.
     bulkSourceID = selectedBarID
     bulkSourcePage = 1
 
@@ -1168,8 +1166,6 @@ local function ShowBulkDialog()
     bulkOverlay:Show()
 end
 
--- Window sizing is kept outside profiles and the configuration session's
--- Apply/Revert snapshot, since it is a UI preference rather than bar data.
 local function GetWindowPreferences()
     local root = ns.rootDB or MythIncActionBarsDB
     if not root then return nil end
@@ -1184,6 +1180,8 @@ end
 local function LoadWindowHeight()
     local preferences = GetWindowPreferences()
     local height = preferences and tonumber(preferences.height)
+    spellbookLayout =
+        preferences and preferences.spellbookLayout == true or false
 
     if height and height == height then
         preferredWindowHeight = math.max(
@@ -1203,11 +1201,60 @@ local function SaveWindowHeight()
 end
 
 local function GetScreenFitScale()
+    local availableWidth =
+        UIParent:GetWidth() - SCREEN_MARGIN
+
+    if spellbookLayout then
+        availableWidth =
+            UIParent:GetWidth() * 0.49 - SCREEN_MARGIN
+    end
+
     return math.max(0.1, math.min(
         1,
-        (UIParent:GetWidth() - SCREEN_MARGIN) / WINDOW_WIDTH,
+        availableWidth / WINDOW_WIDTH,
         (UIParent:GetHeight() - SCREEN_MARGIN) / WINDOW_HEIGHT
     ))
+end
+
+local function PositionConfigWindow()
+    if not panel then return end
+
+    panel:ClearAllPoints()
+
+    if spellbookLayout then
+        panel:SetPoint(
+            "RIGHT", UIParent, "RIGHT",
+            -SCREEN_MARGIN / 2, 0
+        )
+    else
+        panel:SetPoint(
+            "CENTER", UIParent, "CENTER", 0, 0
+        )
+    end
+end
+
+local FitConfigToScreen
+
+local function SetSpellbookLayout(enabled)
+    if not panel then return end
+
+    spellbookLayout = enabled == true
+
+    local preferences = GetWindowPreferences()
+    if preferences then
+        preferences.spellbookLayout = spellbookLayout
+    end
+
+    if spellbookLayoutButton then
+        spellbookLayoutButton:SetText(
+            spellbookLayout
+                and "Normal Layout"
+                or "Spellbook Layout"
+        )
+    end
+
+    PositionConfigWindow()
+    FitConfigToScreen()
 end
 
 local function GetMaximumWindowHeight(baseScale)
@@ -1219,7 +1266,7 @@ local function GetMaximumWindowHeight(baseScale)
     )
 end
 
-local function FitConfigToScreen()
+FitConfigToScreen = function()
     if not panel then return end
 
     local baseScale = GetScreenFitScale()
@@ -1230,15 +1277,18 @@ local function FitConfigToScreen()
 
     if isMinimized then
         panel:SetHeight(MINIMIZED_HEIGHT)
-        panel:SetScale(baseScale * math.min(
-            1, shownHeight / WINDOW_HEIGHT
-        ))
+        panel:SetScale(
+            baseScale * math.min(
+                1,
+                shownHeight / WINDOW_HEIGHT
+            )
+        )
     elseif shownHeight < WINDOW_HEIGHT then
-        -- Keep the full 720-unit layout; scale it uniformly.
         panel:SetHeight(WINDOW_HEIGHT)
-        panel:SetScale(baseScale * shownHeight / WINDOW_HEIGHT)
+        panel:SetScale(
+            baseScale * shownHeight / WINDOW_HEIGHT
+        )
     else
-        -- Only the bottom-anchored settings viewport expands.
         panel:SetHeight(shownHeight)
         panel:SetScale(baseScale)
     end
@@ -1260,8 +1310,6 @@ local function StartVerticalResize()
     local _, cursorY = GetCursorPosition()
     resizeStartCursorY = cursorY
 
-    -- Retain the top edge and horizontal centre as the grip moves.
-    -- These are captured in screen pixels, independent of frame scale.
     local centerX = panel:GetCenter()
     local top = panel:GetTop()
     local effectiveScale = panel:GetEffectiveScale()
@@ -1281,6 +1329,7 @@ local function UpdateVerticalResize()
     local _, cursorY = GetCursorPosition()
     local parentScale = UIParent:GetEffectiveScale()
     local pixelsPerUnit = parentScale * resizeBaseScale
+
     if pixelsPerUnit <= 0 then return end
 
     local delta =
@@ -1320,23 +1369,39 @@ end
 local function CreateResizeGrip()
     resizeGrip = CreateFrame("Button", nil, panel)
     resizeGrip:SetSize(104, 14)
-    resizeGrip:SetPoint("BOTTOM", panel, "BOTTOM", 0, 2)
-    resizeGrip:SetFrameLevel(panel:GetFrameLevel() + 15)
+    resizeGrip:SetPoint(
+        "BOTTOM", panel, "BOTTOM", 0, 2
+    )
+    resizeGrip:SetFrameLevel(
+        panel:GetFrameLevel() + 15
+    )
     resizeGrip:RegisterForDrag("LeftButton")
 
-    local line = resizeGrip:CreateTexture(nil, "ARTWORK")
+    local line =
+        resizeGrip:CreateTexture(nil, "ARTWORK")
     line:SetColorTexture(unpack(colors.accent))
     line:SetSize(48, 2)
-    line:SetPoint("CENTER", resizeGrip, "CENTER", 0, 2)
+    line:SetPoint(
+        "CENTER", resizeGrip, "CENTER", 0, 2
+    )
 
-    local secondLine = resizeGrip:CreateTexture(nil, "ARTWORK")
+    local secondLine =
+        resizeGrip:CreateTexture(nil, "ARTWORK")
     secondLine:SetColorTexture(unpack(colors.accent))
     secondLine:SetSize(30, 2)
-    secondLine:SetPoint("CENTER", resizeGrip, "CENTER", 0, -2)
+    secondLine:SetPoint(
+        "CENTER", resizeGrip, "CENTER", 0, -2
+    )
 
-    resizeGrip:SetScript("OnDragStart", StartVerticalResize)
-    resizeGrip:SetScript("OnDragStop", StopVerticalResize)
-    resizeGrip:SetScript("OnUpdate", UpdateVerticalResize)
+    resizeGrip:SetScript(
+        "OnDragStart", StartVerticalResize
+    )
+    resizeGrip:SetScript(
+        "OnDragStop", StopVerticalResize
+    )
+    resizeGrip:SetScript(
+        "OnUpdate", UpdateVerticalResize
+    )
 
     resizeGrip:SetScript("OnEnter", function(self)
         line:SetAlpha(1)
@@ -1380,7 +1445,9 @@ SetTopLevelMode = function(mode)
     end
 
     if actionBarsTab then
-        actionBarsTab:SetSelected(mode == "Action Bars")
+        actionBarsTab:SetSelected(
+            mode == "Action Bars"
+        )
     end
 
     if profilesTab then
@@ -1442,11 +1509,15 @@ SetTopLevelMode = function(mode)
     end
 
     if applyChangesButton then
-        applyChangesButton:SetShown(not isMinimized)
+        applyChangesButton:SetShown(
+            not isMinimized
+        )
     end
 
     if revertChangesButton then
-        revertChangesButton:SetShown(not isMinimized)
+        revertChangesButton:SetShown(
+            not isMinimized
+        )
     end
 
     if resetAllButton then
@@ -1459,7 +1530,10 @@ SetTopLevelMode = function(mode)
         end
     elseif showActionBars then
         RefreshControls()
-    elseif showProfiles and profilesPage and profilesPage.Refresh then
+    elseif showProfiles
+        and profilesPage
+        and profilesPage.Refresh
+    then
         profilesPage:Refresh()
     end
 end
@@ -1504,17 +1578,26 @@ local function CreateConfirmationDialog()
         return confirmationDialog
     end
 
-    confirmationOverlay = CreateFrame("Frame", nil, panel)
+    confirmationOverlay =
+        CreateFrame("Frame", nil, panel)
     confirmationOverlay:SetAllPoints(panel)
-    confirmationOverlay:SetFrameLevel(panel:GetFrameLevel() + 90)
+    confirmationOverlay:SetFrameLevel(
+        panel:GetFrameLevel() + 90
+    )
     confirmationOverlay:EnableMouse(true)
 
-    local dim = confirmationOverlay:CreateTexture(nil, "BACKGROUND")
+    local dim =
+        confirmationOverlay:CreateTexture(
+            nil, "BACKGROUND"
+        )
     dim:SetAllPoints()
     dim:SetColorTexture(0, 0, 0, 0.58)
 
     confirmationDialog = CreateFrame(
-        "Frame", nil, confirmationOverlay, "BackdropTemplate"
+        "Frame",
+        nil,
+        confirmationOverlay,
+        "BackdropTemplate"
     )
     confirmationDialog:SetSize(560, 210)
     confirmationDialog:SetPoint(
@@ -1523,22 +1606,34 @@ local function CreateConfirmationDialog()
     confirmationDialog:SetFrameLevel(
         confirmationOverlay:GetFrameLevel() + 10
     )
-    widgets.SetBackdrop(confirmationDialog, colors.background)
+    widgets.SetBackdrop(
+        confirmationDialog, colors.background
+    )
 
     confirmationTitle =
-        confirmationDialog:CreateFontString(nil, "OVERLAY")
-
+        confirmationDialog:CreateFontString(
+            nil, "OVERLAY"
+        )
     SetFont(confirmationTitle, 16, false)
     confirmationTitle:SetPoint(
-        "TOPLEFT", confirmationDialog, "TOPLEFT", 22, -20
+        "TOPLEFT",
+        confirmationDialog,
+        "TOPLEFT",
+        22,
+        -20
     )
 
     confirmationMessage =
-        confirmationDialog:CreateFontString(nil, "OVERLAY")
-
+        confirmationDialog:CreateFontString(
+            nil, "OVERLAY"
+        )
     SetFont(confirmationMessage, 11, true)
     confirmationMessage:SetPoint(
-        "TOPLEFT", confirmationTitle, "BOTTOMLEFT", 0, -16
+        "TOPLEFT",
+        confirmationTitle,
+        "BOTTOMLEFT",
+        0,
+        -16
     )
     confirmationMessage:SetWidth(516)
     confirmationMessage:SetJustifyH("LEFT")
@@ -1547,48 +1642,69 @@ local function CreateConfirmationDialog()
     for index = 1, 3 do
         local buttonIndex = index
 
-        confirmationButtons[index] = widgets.CreateButton(
-            confirmationDialog, "", 150, 34, 0, -152,
-            function()
-                RunConfirmationAction(buttonIndex)
-            end
-        )
+        confirmationButtons[index] =
+            widgets.CreateButton(
+                confirmationDialog,
+                "",
+                150,
+                34,
+                0,
+                -152,
+                function()
+                    RunConfirmationAction(
+                        buttonIndex
+                    )
+                end
+            )
 
         confirmationButtons[index]:Hide()
     end
 
     confirmationDialog:EnableKeyboard(true)
     confirmationDialog:SetPropagateKeyboardInput(false)
-    confirmationDialog:SetScript("OnKeyDown", function(_, key)
-        if key == "ESCAPE" then
-            if confirmationButtonCount > 0 then
-                RunConfirmationAction(confirmationButtonCount)
-            else
-                HideConfirmationDialog()
-            end
-            return
-        end
 
-        if key == "ENTER" and confirmationButtonCount > 0 then
-            RunConfirmationAction(1)
+    confirmationDialog:SetScript(
+        "OnKeyDown",
+        function(_, key)
+            if key == "ESCAPE" then
+                if confirmationButtonCount > 0 then
+                    RunConfirmationAction(
+                        confirmationButtonCount
+                    )
+                else
+                    HideConfirmationDialog()
+                end
+                return
+            end
+
+            if key == "ENTER"
+                and confirmationButtonCount > 0
+            then
+                RunConfirmationAction(1)
+            end
         end
-    end)
+    )
 
     confirmationOverlay:Hide()
     confirmationDialog:Hide()
-
     return confirmationDialog
 end
 
 local function ShowConfirmationDialog(options)
     CreateConfirmationDialog()
 
-    confirmationTitle:SetText(options.title or "Confirm")
-    confirmationMessage:SetText(options.message or "")
+    confirmationTitle:SetText(
+        options.title or "Confirm"
+    )
+    confirmationMessage:SetText(
+        options.message or ""
+    )
     confirmationActions = {}
 
     local buttons = options.buttons or {}
-    confirmationButtonCount = math.min(3, #buttons)
+    confirmationButtonCount = math.min(
+        3, #buttons
+    )
 
     for index = 1, 3 do
         confirmationButtons[index]:Hide()
@@ -1607,16 +1723,23 @@ local function ShowConfirmationDialog(options)
 
     for index = 1, confirmationButtonCount do
         local definition = buttons[index]
-        local dialogButton = confirmationButtons[index]
+        local dialogButton =
+            confirmationButtons[index]
 
         dialogButton:ClearAllPoints()
         dialogButton:SetPoint(
-            "TOPLEFT", confirmationDialog, "TOPLEFT",
-            positions[index], -152
+            "TOPLEFT",
+            confirmationDialog,
+            "TOPLEFT",
+            positions[index],
+            -152
         )
-        dialogButton:SetText(definition.text or "Okay")
+        dialogButton:SetText(
+            definition.text or "Okay"
+        )
 
-        confirmationActions[index] = definition.action
+        confirmationActions[index] =
+            definition.action
         dialogButton:Show()
     end
 
@@ -1627,9 +1750,13 @@ local function ShowConfirmationDialog(options)
     )
 end
 
-ns.ShowConfigConfirmation = ShowConfirmationDialog
+ns.ShowConfigConfirmation =
+    ShowConfirmationDialog
 
-local function ShowDeleteBarConfirmation(barID, barName)
+local function ShowDeleteBarConfirmation(
+    barID,
+    barName
+)
     ShowConfirmationDialog({
         title = "Delete Bar",
         message = "Delete \"" .. barName
@@ -1638,7 +1765,8 @@ local function ShowDeleteBarConfirmation(barID, barName)
             {
                 text = "Delete",
                 action = function()
-                    local success, reason = ns.DeleteBar(barID)
+                    local success, reason =
+                        ns.DeleteBar(barID)
 
                     if not success then
                         if reason == "combat" then
@@ -1649,7 +1777,8 @@ local function ShowDeleteBarConfirmation(barID, barName)
                         return false
                     end
 
-                    selectedBarID = GetFallbackBarID(barID) or 1
+                    selectedBarID =
+                        GetFallbackBarID(barID) or 1
                     EnsureSelectedBarVisible()
                     RefreshBarSelector()
                     RefreshControls()
@@ -1674,7 +1803,8 @@ local function ShowRevertConfirmation()
                         ns.LockAllBars()
                     end
 
-                    local success, reason = ns.RevertConfigChanges()
+                    local success, reason =
+                        ns.RevertConfigChanges()
 
                     if not success then
                         if reason == "combat" then
@@ -1742,7 +1872,8 @@ local function ShowUnappliedChangesDialog()
             {
                 text = "Revert Changes",
                 action = function()
-                    local success, reason = ns.RevertConfigChanges()
+                    local success, reason =
+                        ns.RevertConfigChanges()
 
                     if not success then
                         if reason == "combat" then
@@ -1763,6 +1894,56 @@ local function ShowUnappliedChangesDialog()
     })
 end
 
+local spellbookWasVisible = false
+local spellbookPollElapsed = 0
+
+local function IsSpellbookVisible()
+    return (PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
+        or (SpellBookFrame and SpellBookFrame:IsShown())
+        or false
+end
+
+local function OfferSpellbookLayout()
+    local preferences = GetWindowPreferences()
+
+    if not preferences or preferences.spellbookPromptSeen then
+        return
+    end
+
+    if spellbookLayout or isMinimized or InCombatLockdown() then
+        return
+    end
+
+    if (confirmationOverlay and confirmationOverlay:IsShown())
+        or (bulkOverlay and bulkOverlay:IsShown())
+        or (renameDialog and renameDialog:IsShown())
+    then
+        return
+    end
+
+    ShowConfirmationDialog({
+        title = "Spellbook Layout Available",
+        message = "MIAB can move to the right side of your screen to give the spellbook more room while you drag abilities onto your action bars.\n\nWould you like to use Spellbook Layout? You can change this any time using the button at the top of MIAB.",
+        buttons = {
+            {
+                text = "Use Spellbook Layout",
+                action = function()
+                    preferences.spellbookPromptSeen = true
+                    SetSpellbookLayout(true)
+                    return true
+                end,
+            },
+            {
+                text = "Not Now",
+                action = function()
+                    preferences.spellbookPromptSeen = true
+                    return true
+                end,
+            },
+        },
+    })
+end
+
 RequestCloseConfig = function()
     if not panel or not panel:IsShown() then
         return
@@ -1770,7 +1951,9 @@ RequestCloseConfig = function()
 
     HideBulkDialog()
 
-    if ns.HasConfigChanges and ns.HasConfigChanges() then
+    if ns.HasConfigChanges
+        and ns.HasConfigChanges()
+    then
         ShowUnappliedChangesDialog()
         return
     end
@@ -1780,7 +1963,8 @@ RequestCloseConfig = function()
 end
 
 local function CreateHeader()
-    logoTexture = panel:CreateTexture(nil, "ARTWORK")
+    logoTexture =
+        panel:CreateTexture(nil, "ARTWORK")
     logoTexture:SetSize(96, 96)
     logoTexture:SetPoint(
         "TOPLEFT", panel, "TOPLEFT", 18, -10
@@ -1789,48 +1973,122 @@ local function CreateHeader()
         "Interface\\AddOns\\MythIncActionBars\\Media\\Artwork\\MIUF_Icon_128.png"
     )
 
-    local title = panel:CreateFontString(nil, "OVERLAY")
+    local title =
+        panel:CreateFontString(nil, "OVERLAY")
     SetFont(title, 17)
     title:SetPoint(
         "TOPLEFT", panel, "TOPLEFT", 120, -16
     )
     title:SetText("M Y T H Inc Action Bars")
 
-    local version = panel:CreateFontString(nil, "OVERLAY")
+    local version =
+        panel:CreateFontString(nil, "OVERLAY")
     SetFont(version, 10, true)
-    version:SetPoint("LEFT", title, "RIGHT", 10, -1)
+    version:SetPoint(
+        "LEFT", title, "RIGHT", 10, -1
+    )
     version:SetText(ns.version)
 
     widgets.CreateButton(
-        panel, "X", 28, 24, WINDOW_WIDTH - 38, -10,
+        panel,
+        "X",
+        28,
+        24,
+        WINDOW_WIDTH - 38,
+        -10,
         function()
             RequestCloseConfig()
         end
     )
 
     minimizeButton = widgets.CreateButton(
-        panel, "Minimize", 86, 24, WINDOW_WIDTH - 130, -10,
+        panel,
+        "Minimize",
+        86,
+        24,
+        WINDOW_WIDTH - 130,
+        -10,
         function()
             SetMinimized(not isMinimized)
         end
     )
 
+    spellbookLayoutButton = widgets.CreateButton(
+        panel,
+        spellbookLayout
+            and "Normal Layout"
+            or "Spellbook Layout",
+        148,
+        24,
+        716,
+        -10,
+        function()
+            SetSpellbookLayout(
+                not spellbookLayout
+            )
+        end
+    )
+
+    moveWindowButton = widgets.CreateButton(
+        panel,
+        "Drag to Move",
+        124,
+        24,
+        580,
+        -10,
+        function() end
+    )
+
+    moveWindowButton:RegisterForDrag(
+        "LeftButton"
+    )
+
+    moveWindowButton:SetScript(
+        "OnDragStart",
+        function()
+            if resizeInProgress then return end
+            panel:StartMoving()
+        end
+    )
+
+    moveWindowButton:SetScript(
+        "OnDragStop",
+        function()
+            panel:StopMovingOrSizing()
+        end
+    )
+
     generalTab = widgets.CreateTabButton(
-        panel, "General", 110, 28, 180, -48,
+        panel,
+        "General",
+        110,
+        28,
+        180,
+        -48,
         function()
             SetTopLevelMode("General")
         end
     )
 
     actionBarsTab = widgets.CreateTabButton(
-        panel, "Action Bars", 110, 28, 298, -48,
+        panel,
+        "Action Bars",
+        110,
+        28,
+        298,
+        -48,
         function()
             SetTopLevelMode("Action Bars")
         end
     )
 
     profilesTab = widgets.CreateTabButton(
-        panel, "Profiles", 110, 28, 416, -48,
+        panel,
+        "Profiles",
+        110,
+        28,
+        416,
+        -48,
         function()
             SetTopLevelMode("Profiles")
         end
@@ -1841,13 +2099,19 @@ end
 
 local function CreateActionBarSettingsSection()
     actionBarSettingsSection = widgets.CreateSection(
-        panel, "ACTION BAR SETTINGS", 1036, 100, 22, -96
+        panel,
+        "ACTION BAR SETTINGS",
+        1036,
+        100,
+        22,
+        -96
     )
 
     hideBlizzardCheckbox = widgets.CreateCheckButton(
         actionBarSettingsSection,
         "Hide Blizzard Action Bars",
-        18, -32,
+        18,
+        -32,
         function()
             return ns.AreBlizzardActionBarsHidden()
         end,
@@ -1866,7 +2130,8 @@ local function CreateActionBarSettingsSection()
     lockContentsCheckbox = widgets.CreateCheckButton(
         actionBarSettingsSection,
         "Lock Button Contents",
-        380, -32,
+        380,
+        -32,
         function()
             return not ns.db.buttonInteraction
                 or ns.db.buttonInteraction.lockContents ~= false
@@ -1875,7 +2140,8 @@ local function CreateActionBarSettingsSection()
             ns.db.buttonInteraction =
                 ns.db.buttonInteraction or {}
 
-            ns.db.buttonInteraction.lockContents = value == true
+            ns.db.buttonInteraction.lockContents =
+                value == true
 
             if ns.NotifyButtonInteractionChanged then
                 ns.NotifyButtonInteractionChanged()
@@ -1890,7 +2156,8 @@ local function CreateActionBarSettingsSection()
     activateOnPressCheckbox = widgets.CreateCheckButton(
         actionBarSettingsSection,
         "Activate on Press",
-        18, -68,
+        18,
+        -68,
         function()
             return ns.db.buttonInteraction
                 and ns.db.buttonInteraction.activateOnPress == true
@@ -1900,7 +2167,8 @@ local function CreateActionBarSettingsSection()
             ns.db.buttonInteraction =
                 ns.db.buttonInteraction or {}
 
-            ns.db.buttonInteraction.activateOnPress = value == true
+            ns.db.buttonInteraction.activateOnPress =
+                value == true
 
             if ns.NotifyButtonInteractionChanged then
                 ns.NotifyButtonInteractionChanged()
@@ -1915,7 +2183,8 @@ local function CreateActionBarSettingsSection()
     alignmentGridCheckbox = widgets.CreateCheckButton(
         actionBarSettingsSection,
         "Show Alignment Grid",
-        380, -68,
+        380,
+        -68,
         function()
             return ns.IsAlignmentGridEnabled()
         end,
@@ -1927,104 +2196,158 @@ local function CreateActionBarSettingsSection()
 
     gridSpacingLabel = widgets.CreateText(
         actionBarSettingsSection,
-        "Grid spacing (px)", 11, 620, -73
+        "Grid spacing (px)",
+        11,
+        620,
+        -73
     )
 
     gridSpacingBox = CreateFrame(
-        "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
+        "EditBox",
+        nil,
+        actionBarSettingsSection,
+        "InputBoxTemplate"
     )
     gridSpacingBox:SetSize(58, 20)
     gridSpacingBox:SetPoint(
-        "TOPLEFT", actionBarSettingsSection, "TOPLEFT",
-        758, -69
+        "TOPLEFT",
+        actionBarSettingsSection,
+        "TOPLEFT",
+        758,
+        -69
     )
     gridSpacingBox:SetAutoFocus(false)
     gridSpacingBox:SetMaxLetters(3)
     gridSpacingBox:SetJustifyH("CENTER")
-    gridSpacingBox:SetTextColor(unpack(colors.text))
+    gridSpacingBox:SetTextColor(
+        unpack(colors.text)
+    )
 
     local function RestoreGridSpacing()
         gridSpacingBox:SetText(
-            tostring(ns.GetAlignmentGridSpacing())
+            tostring(
+                ns.GetAlignmentGridSpacing()
+            )
         )
     end
 
     local function CommitGridSpacing()
-        ns.SetAlignmentGridSpacing(gridSpacingBox:GetText())
+        ns.SetAlignmentGridSpacing(
+            gridSpacingBox:GetText()
+        )
         RestoreGridSpacing()
     end
 
-    gridSpacingBox:SetScript("OnEnterPressed", function(self)
-        CommitGridSpacing()
-        self:ClearFocus()
-    end)
+    gridSpacingBox:SetScript(
+        "OnEnterPressed",
+        function(self)
+            CommitGridSpacing()
+            self:ClearFocus()
+        end
+    )
 
-    gridSpacingBox:SetScript("OnEscapePressed", function(self)
-        RestoreGridSpacing()
-        self:ClearFocus()
-    end)
+    gridSpacingBox:SetScript(
+        "OnEscapePressed",
+        function(self)
+            RestoreGridSpacing()
+            self:ClearFocus()
+        end
+    )
 
-    gridSpacingBox:SetScript("OnEditFocusLost", CommitGridSpacing)
+    gridSpacingBox:SetScript(
+        "OnEditFocusLost",
+        CommitGridSpacing
+    )
 
-    gridSpacingBox:SetScript("OnEditFocusGained", function(self)
-        self:HighlightText()
-    end)
+    gridSpacingBox:SetScript(
+        "OnEditFocusGained",
+        function(self)
+            self:HighlightText()
+        end
+    )
 
     RestoreGridSpacing()
 
     gridOpacityLabel = widgets.CreateText(
         actionBarSettingsSection,
-        "Opacity (%)", 11, 842, -73
+        "Opacity (%)",
+        11,
+        842,
+        -73
     )
 
     gridOpacityBox = CreateFrame(
-        "EditBox", nil, actionBarSettingsSection, "InputBoxTemplate"
+        "EditBox",
+        nil,
+        actionBarSettingsSection,
+        "InputBoxTemplate"
     )
     gridOpacityBox:SetSize(50, 20)
     gridOpacityBox:SetPoint(
-        "TOPLEFT", actionBarSettingsSection, "TOPLEFT",
-        962, -69
+        "TOPLEFT",
+        actionBarSettingsSection,
+        "TOPLEFT",
+        962,
+        -69
     )
     gridOpacityBox:SetAutoFocus(false)
     gridOpacityBox:SetMaxLetters(3)
     gridOpacityBox:SetJustifyH("CENTER")
-    gridOpacityBox:SetTextColor(unpack(colors.text))
+    gridOpacityBox:SetTextColor(
+        unpack(colors.text)
+    )
 
     local function RestoreGridOpacity()
         gridOpacityBox:SetText(
             tostring(
                 math.floor(
-                    ns.GetAlignmentGridOpacity() * 100 + 0.5
+                    ns.GetAlignmentGridOpacity()
+                    * 100 + 0.5
                 )
             )
         )
     end
 
     local function CommitGridOpacity()
-        local percent = tonumber(gridOpacityBox:GetText())
+        local percent =
+            tonumber(gridOpacityBox:GetText())
 
         if percent then
-            ns.SetAlignmentGridOpacity(percent / 100)
+            ns.SetAlignmentGridOpacity(
+                percent / 100
+            )
         end
 
         RestoreGridOpacity()
     end
 
-    gridOpacityBox:SetScript("OnEnterPressed", function(self)
-        CommitGridOpacity()
-        self:ClearFocus()
-    end)
+    gridOpacityBox:SetScript(
+        "OnEnterPressed",
+        function(self)
+            CommitGridOpacity()
+            self:ClearFocus()
+        end
+    )
 
-    gridOpacityBox:SetScript("OnEscapePressed", function(self)
-        RestoreGridOpacity()
-        self:ClearFocus()
-    end)
+    gridOpacityBox:SetScript(
+        "OnEscapePressed",
+        function(self)
+            RestoreGridOpacity()
+            self:ClearFocus()
+        end
+    )
 
-    gridOpacityBox:SetScript("OnEditFocusLost", CommitGridOpacity)
+    gridOpacityBox:SetScript(
+        "OnEditFocusLost",
+        CommitGridOpacity
+    )
 
-    gridOpacityBox:SetScript("OnEditFocusGained", function(self)
-        self:HighlightText()
-    end)
+    gridOpacityBox:SetScript(
+        "OnEditFocusGained",
+        function(self)
+            self:HighlightText()
+        end
+    )
 
     RestoreGridOpacity()
 
@@ -2037,45 +2360,68 @@ end
 
 local function CreateBarSelector()
     barSelectorSection = widgets.CreateSection(
-        panel, "ACTION BARS", 1036, 100, 22, SELECTOR_TOP
+        panel,
+        "ACTION BARS",
+        1036,
+        100,
+        22,
+        SELECTOR_TOP
     )
 
     barSelectorViewport = CreateFrame(
-        "Frame", nil, barSelectorSection
+        "Frame",
+        nil,
+        barSelectorSection
     )
-    barSelectorViewport:SetSize(780, SELECTOR_ROW_HEIGHT)
+    barSelectorViewport:SetSize(
+        780,
+        SELECTOR_ROW_HEIGHT
+    )
     barSelectorViewport:SetPoint(
-        "TOPLEFT", barSelectorSection, "TOPLEFT",
-        12, -36
+        "TOPLEFT",
+        barSelectorSection,
+        "TOPLEFT",
+        12,
+        -36
     )
     barSelectorViewport:SetClipsChildren(true)
     barSelectorViewport:EnableMouseWheel(true)
 
-    barSelectorViewport:SetScript("OnMouseWheel", function(_, delta)
-        local totalRows = math.ceil(
-            #ns.GetBarIDs() / BAR_COLUMNS
-        )
-
-        local maxOffset = math.max(
-            0, totalRows - BAR_VISIBLE_ROWS
-        )
-
-        if delta < 0 then
-            barSelectorOffset = math.min(
-                maxOffset, barSelectorOffset + 1
+    barSelectorViewport:SetScript(
+        "OnMouseWheel",
+        function(_, delta)
+            local totalRows = math.ceil(
+                #ns.GetBarIDs() / BAR_COLUMNS
             )
-        elseif delta > 0 then
-            barSelectorOffset = math.max(
-                0, barSelectorOffset - 1
+
+            local maxOffset = math.max(
+                0,
+                totalRows - BAR_VISIBLE_ROWS
             )
+
+            if delta < 0 then
+                barSelectorOffset = math.min(
+                    maxOffset,
+                    barSelectorOffset + 1
+                )
+            elseif delta > 0 then
+                barSelectorOffset = math.max(
+                    0,
+                    barSelectorOffset - 1
+                )
+            end
+
+            RefreshBarSelector()
         end
-
-        RefreshBarSelector()
-    end)
+    )
 
     addButton = widgets.CreateButton(
         barSelectorSection,
-        "Add Action Bar", 110, 30, 912, -74,
+        "Add Action Bar",
+        110,
+        30,
+        912,
+        -74,
         function()
             local barID, reason = ns.AddBar()
 
@@ -2094,11 +2440,18 @@ local function CreateBarSelector()
 
     unlockAllButton = widgets.CreateButton(
         barSelectorSection,
-        "Unlock All Bars", 110, 30, 796, -74,
+        "Unlock All Bars",
+        110,
+        30,
+        796,
+        -74,
         function()
-            local success, reason = ns.ToggleAllBarsUnlocked()
+            local success, reason =
+                ns.ToggleAllBarsUnlocked()
 
-            if not success and reason == "combat" then
+            if not success
+                and reason == "combat"
+            then
                 Message(
                     "Bars cannot be unlocked during combat."
                 )
@@ -2120,49 +2473,75 @@ local function CreateBarManagementControls()
 
     renameButton = widgets.CreateButton(
         barSelectorSection,
-        "Rename Bar", 110, 30, 796, -38,
+        "Rename Bar",
+        110,
+        30,
+        796,
+        -38,
         function()
             renameBarID = selectedBarID
 
             if not renameDialog then
-                renameDialog = CreateFrame("Frame", nil, panel)
+                renameDialog = CreateFrame(
+                    "Frame", nil, panel
+                )
                 renameDialog:SetAllPoints(panel)
                 renameDialog:SetFrameLevel(
                     panel:GetFrameLevel() + 80
                 )
                 renameDialog:EnableMouse(true)
 
-                local dim = renameDialog:CreateTexture(
-                    nil, "BACKGROUND"
-                )
+                local dim =
+                    renameDialog:CreateTexture(
+                        nil, "BACKGROUND"
+                    )
                 dim:SetAllPoints()
-                dim:SetColorTexture(0, 0, 0, 0.75)
+                dim:SetColorTexture(
+                    0, 0, 0, 0.75
+                )
 
                 local box = widgets.CreateSection(
                     renameDialog,
-                    "RENAME BAR", 420, 166, 0, 0
+                    "RENAME BAR",
+                    420,
+                    166,
+                    0,
+                    0
                 )
                 box:ClearAllPoints()
                 box:SetPoint(
-                    "CENTER", renameDialog, "CENTER"
+                    "CENTER",
+                    renameDialog,
+                    "CENTER"
                 )
 
                 nameControl = widgets.CreateEditBox(
-                    box, "Name", 370, 20, -38,
+                    box,
+                    "Name",
+                    370,
+                    20,
+                    -38,
                     function()
-                        local settings = ns.db.bars[renameBarID]
-                        return settings and settings.name or ""
+                        local settings =
+                            ns.db.bars[renameBarID]
+
+                        return settings
+                            and settings.name or ""
                     end,
                     function() end
                 )
 
                 local function SaveName()
-                    local settings = ns.db.bars[renameBarID]
+                    local settings =
+                        ns.db.bars[renameBarID]
 
-                    local value = nameControl.editBox:GetText()
-                        :match("^%s*(.-)%s*$")
+                    local value =
+                        nameControl.editBox:GetText()
+                            :match("^%s*(.-)%s*$")
 
-                    if not settings or value == "" then
+                    if not settings
+                        or value == ""
+                    then
                         return
                     end
 
@@ -2174,20 +2553,32 @@ local function CreateBarManagementControls()
                 end
 
                 nameControl.editBox:SetScript(
-                    "OnEnterPressed", SaveName
+                    "OnEnterPressed",
+                    SaveName
                 )
 
                 nameControl.editBox:SetScript(
-                    "OnEscapePressed", HideRenameDialog
+                    "OnEscapePressed",
+                    HideRenameDialog
                 )
 
                 widgets.CreateButton(
-                    box, "Save", 110, 30, 170, -118,
+                    box,
+                    "Save",
+                    110,
+                    30,
+                    170,
+                    -118,
                     SaveName
                 )
 
                 widgets.CreateButton(
-                    box, "Cancel", 110, 30, 288, -118,
+                    box,
+                    "Cancel",
+                    110,
+                    30,
+                    288,
+                    -118,
                     HideRenameDialog
                 )
             end
@@ -2201,60 +2592,80 @@ local function CreateBarManagementControls()
 
     unlockButton = widgets.CreateButton(
         barSelectorSection,
-        "Unlock Bar", 110, 30, 912, -38,
+        "Unlock Bar",
+        110,
+        30,
+        912,
+        -38,
         function()
-            local settings = GetSelectedSettings()
+            local settings =
+                GetSelectedSettings()
 
-            if not settings or not settings.enabled then
+            if not settings
+                or not settings.enabled
+            then
                 return
             end
 
-            UnlockSelected(not IsSelectedUnlocked())
+            UnlockSelected(
+                not IsSelectedUnlocked()
+            )
             RefreshControls()
         end
     )
 end
 
 local function CreateCategoryTabs()
-    categoryFrame = CreateFrame("Frame", nil, panel)
+    categoryFrame = CreateFrame(
+        "Frame", nil, panel
+    )
     categoryFrame:SetSize(1036, 34)
     categoryFrame:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, -366
+        "TOPLEFT", panel, "TOPLEFT",
+        22, -366
     )
 
     for index, name in ipairs(CATEGORY_NAMES) do
         local categoryName = name
 
-        categoryButtons[name] = widgets.CreateTabButton(
-            categoryFrame,
-            name,
-            196,
-            34,
-            (index - 1) * 206,
-            0,
-            function()
-                selectedCategory = categoryName
-                RefreshCategoryButtons()
-            end
-        )
+        categoryButtons[name] =
+            widgets.CreateTabButton(
+                categoryFrame,
+                name,
+                196,
+                34,
+                (index - 1) * 206,
+                0,
+                function()
+                    selectedCategory = categoryName
+                    RefreshCategoryButtons()
+                end
+            )
     end
 end
 
 local function CreatePageHost()
-    pageHost = CreateFrame("Frame", nil, panel)
-    pageHost:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, -414
+    pageHost = CreateFrame(
+        "Frame", nil, panel
     )
     pageHost:SetPoint(
-        "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58
+        "TOPLEFT", panel, "TOPLEFT",
+        22, -414
+    )
+    pageHost:SetPoint(
+        "BOTTOMRIGHT", panel, "BOTTOMRIGHT",
+        -22, 58
     )
     pageHost:SetClipsChildren(true)
 
-    layoutPage = ns.CreateLayoutConfigPage(pageHost, {
-        GetSelectedSettings = GetSelectedSettings,
-        GetSelectedBarID = GetSelectedBarID,
-        RefreshConfig = RefreshControls,
-    })
+    layoutPage = ns.CreateLayoutConfigPage(
+        pageHost,
+        {
+            GetSelectedSettings = GetSelectedSettings,
+            GetSelectedBarID = GetSelectedBarID,
+            RefreshConfig = RefreshControls,
+        }
+    )
 
     local context = {
         GetSelectedSettings = GetSelectedSettings,
@@ -2275,15 +2686,21 @@ local function CreatePageHost()
     )
 
     for _, frame in ipairs({
-        layoutPage, appearancePage, visibilityPage,
-        actionPagesPage, keybindsPage,
+        layoutPage,
+        appearancePage,
+        visibilityPage,
+        actionPagesPage,
+        keybindsPage,
     }) do
         frame:SetAllPoints(pageHost)
     end
 
-    specialPage = ns.CreateSpecialConfigPage(pageHost, {
-        RefreshConfig = RefreshControls,
-    })
+    specialPage = ns.CreateSpecialConfigPage(
+        pageHost,
+        {
+            RefreshConfig = RefreshControls,
+        }
+    )
 
     specialPage:Hide()
     layoutPage:Show()
@@ -2294,29 +2711,41 @@ local function CreatePageHost()
 end
 
 local function CreateGeneralHost()
-    generalHost = CreateFrame("Frame", nil, panel)
-    generalHost:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, -96
+    generalHost = CreateFrame(
+        "Frame", nil, panel
     )
     generalHost:SetPoint(
-        "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58
+        "TOPLEFT", panel, "TOPLEFT",
+        22, -96
+    )
+    generalHost:SetPoint(
+        "BOTTOMRIGHT", panel, "BOTTOMRIGHT",
+        -22, 58
     )
 
-    generalPage = ns.CreateGeneralConfigPage(generalHost)
+    generalPage =
+        ns.CreateGeneralConfigPage(generalHost)
     generalPage:SetAllPoints(generalHost)
     generalHost:Hide()
 end
 
 local function CreateProfilesHost()
-    profilesHost = CreateFrame("Frame", nil, panel)
-    profilesHost:SetPoint(
-        "TOPLEFT", panel, "TOPLEFT", 22, -96
+    profilesHost = CreateFrame(
+        "Frame", nil, panel
     )
     profilesHost:SetPoint(
-        "BOTTOMRIGHT", panel, "BOTTOMRIGHT", -22, 58
+        "TOPLEFT", panel, "TOPLEFT",
+        22, -96
+    )
+    profilesHost:SetPoint(
+        "BOTTOMRIGHT", panel, "BOTTOMRIGHT",
+        -22, 58
     )
 
-    profilesPage = ns.CreateProfilesConfigPage(profilesHost)
+    profilesPage =
+        ns.CreateProfilesConfigPage(
+            profilesHost
+        )
     profilesPage:SetAllPoints(profilesHost)
     profilesHost:Hide()
 end
@@ -2327,12 +2756,21 @@ local function CreateBottomActions()
     local function AnchorToBottom(button, x)
         button:ClearAllPoints()
         button:SetPoint(
-            "BOTTOMLEFT", panel, "BOTTOMLEFT", x, 16
+            "BOTTOMLEFT",
+            panel,
+            "BOTTOMLEFT",
+            x,
+            16
         )
     end
 
     applyChangesButton = widgets.CreateButton(
-        panel, "Apply Changes", 146, 30, 22, y,
+        panel,
+        "Apply Changes",
+        146,
+        30,
+        22,
+        y,
         function()
             if ns.ApplyConfigChanges() then
                 Message("Changes applied.")
@@ -2341,7 +2779,12 @@ local function CreateBottomActions()
     )
 
     revertChangesButton = widgets.CreateButton(
-        panel, "Revert Changes", 146, 30, 178, y,
+        panel,
+        "Revert Changes",
+        146,
+        30,
+        178,
+        y,
         function()
             if InCombatLockdown() then
                 Message(
@@ -2362,16 +2805,29 @@ local function CreateBottomActions()
     )
 
     resetButton = widgets.CreateButton(
-        panel, "Reset Bar", 130, 30, 346, y,
+        panel,
+        "Reset Bar",
+        130,
+        30,
+        346,
+        y,
         ResetSelectedBar
     )
 
     deleteButton = widgets.CreateButton(
-        panel, "Delete Bar", 130, 30, 486, y,
+        panel,
+        "Delete Bar",
+        130,
+        30,
+        486,
+        y,
         function()
-            local settings = GetSelectedSettings()
+            local settings =
+                GetSelectedSettings()
 
-            if not settings or settings.source ~= "custom" then
+            if not settings
+                or settings.source ~= "custom"
+            then
                 return
             end
 
@@ -2383,19 +2839,29 @@ local function CreateBottomActions()
             end
 
             ShowDeleteBarConfirmation(
-                selectedBarID, settings.name
+                selectedBarID,
+                settings.name
             )
         end
     )
 
     applyToAllButton = widgets.CreateButton(
-        panel, "Apply to All...", 160, 30, 636, y,
+        panel,
+        "Apply to All...",
+        160,
+        30,
+        636,
+        y,
         ShowBulkDialog
     )
 
     resetAllButton = widgets.CreateButton(
-        panel, "Reset All", 110, 30,
-        WINDOW_WIDTH - 132, y,
+        panel,
+        "Reset All",
+        110,
+        30,
+        WINDOW_WIDTH - 132,
+        y,
         function()
             if InCombatLockdown() then
                 Message(
@@ -2408,14 +2874,15 @@ local function CreateBottomActions()
         end
     )
 
-    -- These buttons were originally anchored from the 720px top.
-    -- Keep them with the footer as the configuration window grows.
     AnchorToBottom(applyChangesButton, 22)
     AnchorToBottom(revertChangesButton, 178)
     AnchorToBottom(resetButton, 346)
     AnchorToBottom(deleteButton, 486)
     AnchorToBottom(applyToAllButton, 636)
-    AnchorToBottom(resetAllButton, WINDOW_WIDTH - 132)
+    AnchorToBottom(
+        resetAllButton,
+        WINDOW_WIDTH - 132
+    )
 end
 
 local function CreateConfigPanel()
@@ -2430,23 +2897,85 @@ local function CreateConfigPanel()
         "BackdropTemplate"
     )
 
-    table.insert(
-        UISpecialFrames, "MythIncActionBarsConfig"
+    panel:SetSize(
+        WINDOW_WIDTH,
+        WINDOW_HEIGHT
     )
-
-    panel:SetSize(WINDOW_WIDTH, WINDOW_HEIGHT)
-    panel:SetPoint("CENTER")
-    widgets.SetBackdrop(panel, colors.background)
+    PositionConfigWindow()
+    widgets.SetBackdrop(
+        panel,
+        colors.background
+    )
     panel:SetFrameStrata("DIALOG")
     panel:SetClampedToScreen(true)
     panel:SetMovable(true)
     panel:EnableMouse(true)
     panel:RegisterForDrag("LeftButton")
-    panel:SetScript("OnDragStart", panel.StartMoving)
-    panel:SetScript("OnDragStop", panel.StopMovingOrSizing)
+    panel:SetScript(
+        "OnDragStart", panel.StartMoving
+    )
+    panel:SetScript(
+        "OnDragStop", panel.StopMovingOrSizing
+    )
+
+    panel:EnableKeyboard(
+        not InCombatLockdown()
+    )
+    if not InCombatLockdown() then
+        panel:SetPropagateKeyboardInput(true)
+    end
+
+    panel:SetScript("OnKeyDown", function(self, key)
+        if key ~= "ESCAPE"
+            or InCombatLockdown()
+        then
+            return
+        end
+
+        if (PlayerSpellsFrame and PlayerSpellsFrame:IsShown())
+            or (SpellBookFrame and SpellBookFrame:IsShown())
+        then
+            return
+        end
+
+        if (confirmationOverlay and confirmationOverlay:IsShown())
+            or (bulkOverlay and bulkOverlay:IsShown())
+            or (renameDialog and renameDialog:IsShown())
+        then
+            return
+        end
+
+        self:SetPropagateKeyboardInput(false)
+        RequestCloseConfig()
+
+        C_Timer.After(0, function()
+            if not InCombatLockdown() then
+                self:SetPropagateKeyboardInput(true)
+            end
+        end)
+    end)
+
+    panel:SetScript("OnKeyUp", function(self)
+        if not InCombatLockdown() then
+            self:SetPropagateKeyboardInput(true)
+        end
+    end)
+
     panel:RegisterEvent("UI_SCALE_CHANGED")
     panel:RegisterEvent("DISPLAY_SIZE_CHANGED")
-    panel:SetScript("OnEvent", FitConfigToScreen)
+    panel:RegisterEvent("PLAYER_REGEN_DISABLED")
+    panel:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+    panel:SetScript("OnEvent", function(self, event)
+        if event == "PLAYER_REGEN_DISABLED" then
+            self:EnableKeyboard(false)
+        elseif event == "PLAYER_REGEN_ENABLED" then
+            self:EnableKeyboard(true)
+            self:SetPropagateKeyboardInput(true)
+        else
+            FitConfigToScreen()
+        end
+    end)
 
     CreateHeader()
     CreateActionBarSettingsSection()
@@ -2459,7 +2988,36 @@ local function CreateConfigPanel()
     CreateBottomActions()
     CreateResizeGrip()
 
+    panel:HookScript("OnUpdate", function(_, elapsed)
+        spellbookPollElapsed = spellbookPollElapsed + elapsed
+
+        if spellbookPollElapsed < 0.25 then
+            return
+        end
+
+        spellbookPollElapsed = 0
+
+        local visible = IsSpellbookVisible()
+
+        if visible and not spellbookWasVisible then
+            OfferSpellbookLayout()
+        end
+
+        spellbookWasVisible = visible
+    end)
+
     panel:SetScript("OnShow", function()
+        spellbookWasVisible = IsSpellbookVisible()
+        spellbookPollElapsed = 0
+
+        panel:EnableKeyboard(
+            not InCombatLockdown()
+        )
+
+        if not InCombatLockdown() then
+            panel:SetPropagateKeyboardInput(true)
+        end
+
         if suppressNextSessionStart then
             suppressNextSessionStart = false
         elseif ns.BeginConfigSession then
@@ -2469,7 +3027,8 @@ local function CreateConfigPanel()
         allowConfigClose = false
 
         if not GetSelectedSettings() then
-            selectedBarID = ns.GetBarIDs()[1] or 1
+            selectedBarID =
+                ns.GetBarIDs()[1] or 1
         end
 
         EnsureSelectedBarVisible()
@@ -2496,7 +3055,9 @@ local function CreateConfigPanel()
             return
         end
 
-        if ns.HasConfigChanges and ns.HasConfigChanges() then
+        if ns.HasConfigChanges
+            and ns.HasConfigChanges()
+        then
             suppressNextSessionStart = true
 
             C_Timer.After(0, function()
