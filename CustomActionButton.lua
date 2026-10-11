@@ -1,6 +1,5 @@
 
 local addonName, ns = ...
-
 local customButtons = setmetatable({}, { __mode = "k" })
 local activeSpecID
 local activePageByBar = {}
@@ -14,12 +13,10 @@ end
 
 local function ActivateSpecialization(settings)
     if InCombatLockdown() then return end
-
     activeSpecID = activeSpecID or CurrentSpecID()
     if not activeSpecID then return end
 
     if not settings.assignmentsBySpec then
-        -- Preserve legacy custom contents as Page 1.
         settings.assignmentsBySpec = {
             [activeSpecID] = settings.assignments or {},
         }
@@ -52,7 +49,6 @@ local function GetPageAssignments(settings, page, create)
         if create and not settings.assignments then
             settings.assignments = {}
         end
-
         return settings.assignments
     end
 
@@ -65,7 +61,6 @@ local function GetPageAssignments(settings, page, create)
     if not specPages and create then
         settings.customPagesBySpec =
             settings.customPagesBySpec or {}
-
         specPages = {}
         settings.customPagesBySpec[specID] = specPages
     end
@@ -132,10 +127,6 @@ function ns.GetCustomBarActivePage(barID)
     return activePageByBar[barID] or 1
 end
 
--- ============================================================
--- PAGE RULE COMPILATION
--- ============================================================
-
 local CONDITION_TOKENS = {
     stealth = "[stealth]",
     combat = "[combat]",
@@ -175,7 +166,6 @@ local function CompileRule(rule)
         and type(condition) == "string"
     then
         local form = condition:match("^form:(%d+)$")
-
         if form and tonumber(form) <= 10 then
             token = "[form:" .. form .. "]"
         end
@@ -188,9 +178,6 @@ end
 
 local function BuildPageDriver(settings, barID)
     local pages = settings.actionPages or {}
-
-    -- Edit preview is temporary and never stored
-    -- in the character's saved profile.
     local editingPage = editPageByBar[barID]
 
     if editingPage
@@ -211,13 +198,11 @@ local function BuildPageDriver(settings, barID)
 
     for _, rule in ipairs(pages.contextRules or {}) do
         local compiled = CompileRule(rule)
-
         if compiled then
             parts[#parts + 1] = compiled
         end
     end
 
-    -- Modifier priority: ALT, CTRL, SHIFT.
     for _, name in ipairs({
         "alt",
         "ctrl",
@@ -278,12 +263,7 @@ function ns.SetCustomBarEditPage(barID, page)
     return true
 end
 
--- ============================================================
--- SPECIALIZATION HANDLING
--- ============================================================
-
 local specializationEvents = CreateFrame("Frame")
-
 specializationEvents:RegisterEvent(
     "PLAYER_SPECIALIZATION_CHANGED"
 )
@@ -348,15 +328,10 @@ specializationEvents:SetScript(
     end
 )
 
--- ============================================================
--- ASSIGNMENT INFORMATION
--- ============================================================
-
 local function GetAppearance(barID)
     local settings = ns.db
         and ns.db.bars
         and ns.db.bars[barID]
-
     return settings and settings.appearance
 end
 
@@ -392,7 +367,6 @@ local function GetFlyoutSpellbookEntry(flyoutID)
         if line then
             local first =
                 (line.itemIndexOffset or 0) + 1
-
             local last =
                 first + (line.numSpellBookItems or 0) - 1
 
@@ -422,14 +396,12 @@ local function GetAssignmentIcon(assignment)
     if assignment.type == "flyout" then
         local _, _, iconID =
             GetFlyoutSpellbookEntry(assignment.id)
-
         return iconID or 134400
     end
 
     if assignment.type == "spell" then
         local info =
             C_Spell.GetSpellInfo(assignment.id)
-
         return info and info.iconID
     end
 
@@ -447,7 +419,6 @@ local function GetAssignmentIcon(assignment)
             C_MountJournal.GetMountInfoByID(
                 assignment.id
             )
-
         return icon
     end
 
@@ -456,7 +427,6 @@ local function GetAssignmentIcon(assignment)
             C_PetJournal.GetPetInfoByPetID(
                 assignment.id
             )
-
         return icon
     end
 
@@ -481,18 +451,27 @@ local function GetAssignmentSpellID(assignment)
     return nil
 end
 
--- ============================================================
--- SECURE ACTION PAGING
--- ============================================================
-
 local SECURE_PAGE_SNIPPET = [[
     local page = tonumber(newstate) or 1
     if page < 1 or page > 12 then
         page = 1
     end
 
-    local prefix = "miab-page-" .. page .. "-"
+    local previousPage = tonumber(
+        self:GetAttribute("miab-currentpage")
+    ) or 1
 
+    if previousPage ~= page then
+        local popup = self:GetFrameRef(
+            "miab-flyout-popup-" .. previousPage
+        )
+
+        if popup and popup:IsShown() then
+            popup:Hide()
+        end
+    end
+
+    local prefix = "miab-page-" .. page .. "-"
     self:SetAttribute(
         "type",
         self:GetAttribute(prefix .. "type")
@@ -514,6 +493,15 @@ local SECURE_PAGE_SNIPPET = [[
         self:GetAttribute(prefix .. "macrotext")
     )
     self:SetAttribute("miab-currentpage", page)
+
+    local arrow = self:GetFrameRef("miab-flyout-arrow")
+    if arrow then
+        if self:GetAttribute("miab-flyout-set-" .. page) then
+            arrow:Show()
+        else
+            arrow:Hide()
+        end
+    end
 ]]
 
 local function SecureValues(assignment, pagingEnabled)
@@ -521,145 +509,24 @@ local function SecureValues(assignment, pagingEnabled)
 
     if assignment.type == "flyout" then
         return "flyout", assignment.id
-
     elseif assignment.type == "spell" then
-        local info =
-            C_Spell.GetSpellInfo(assignment.id)
-
-        local name = info and info.name
-
-        if not name or name == "" then
-            return nil
-        end
-
-        -- Preserve direct spell casting when paging is off.
-        if not pagingEnabled then
-            return "spell", name
-        end
-
-        -- Build targeting conditions before combat.
-        -- Each page then carries its own casting macro.
-        local clauses = {}
-
-        local helpful =
-            C_Spell.IsSpellHelpful(assignment.id)
-
-        local harmful =
-            C_Spell.IsSpellHarmful(assignment.id)
-
-        local function Modifier(action)
-            local key = GetModifiedClick(action)
-
-            if not key or key == "NONE" then
-                return nil
-            end
-
-            local mods = {}
-
-            for mod in key:lower():gmatch("[^%-]+") do
-                if mod ~= "alt"
-                    and mod ~= "ctrl"
-                    and mod ~= "shift"
-                then
-                    return nil
-                end
-
-                mods[#mods + 1] = "mod:" .. mod
-            end
-
-            return #mods > 0
-                and table.concat(mods, ",")
-                or nil
-        end
-
-        local mouseover =
-            GetModifiedClick("MOUSEOVERCAST")
-
-        local mousemod =
-            Modifier("MOUSEOVERCAST")
-
-        if GetCVarBool("enableMouseoverCast")
-            and (
-                mouseover == "NONE"
-                or mousemod
-            )
-        then
-            local prefix =
-                mousemod and (mousemod .. ",") or ""
-
-            if helpful then
-                clauses[#clauses + 1] =
-                    "[" .. prefix
-                    .. "@mouseover,help,nodead]"
-            end
-
-            if harmful then
-                clauses[#clauses + 1] =
-                    "[" .. prefix
-                    .. "@mouseover,harm,nodead]"
-            end
-        end
-
-        local selfcast = Modifier("SELFCAST")
-        local focuscast = Modifier("FOCUSCAST")
-
-        if selfcast then
-            clauses[#clauses + 1] =
-                "[" .. selfcast .. ",@player]"
-        end
-
-        if focuscast then
-            clauses[#clauses + 1] =
-                "[" .. focuscast .. ",@focus,exists]"
-        end
-
-        if helpful and GetCVarBool("autoSelfCast") then
-            clauses[#clauses + 1] =
-                "[@target,help,nodead]"
-
-            if harmful then
-                clauses[#clauses + 1] =
-                    "[@target,harm,nodead]"
-            end
-
-            clauses[#clauses + 1] = "[@player]"
-        else
-            clauses[#clauses + 1] = "[@target]"
-        end
-
-        local lines = {}
-
-        for _, clause in ipairs(clauses) do
-            lines[#lines + 1] =
-                clause .. " " .. name
-        end
-
-        return "macro",
-            nil,
-            nil,
-            nil,
-            "/cast " .. table.concat(lines, "; ")
-
+        return "spell", assignment.id
     elseif assignment.type == "item" then
         return "item",
             nil,
             "item:" .. assignment.id
-
     elseif assignment.type == "macro" then
         return "macro",
             nil,
             nil,
             assignment.id
-
     elseif assignment.type == "mount" then
         local mountName, spellID =
             C_MountJournal.GetMountInfoByID(
                 assignment.id
             )
-
         local info =
             spellID and C_Spell.GetSpellInfo(spellID)
-
         local castName =
             (info and info.name) or mountName
 
@@ -670,7 +537,6 @@ local function SecureValues(assignment, pagingEnabled)
                 nil,
                 "/cast " .. castName
         end
-
     elseif assignment.type == "battlepet" then
         return "macro",
             nil,
@@ -706,14 +572,11 @@ local function ConfigureSecurePages(
     local driver, active =
         BuildPageDriver(settings, barID)
 
-    -- Prepare every page's secure action outside combat.
     for page = 1, MAX_PAGES do
         local assignment =
             GetAssignment(barID, buttonID, page)
-
         local actionType, spell, item, macro, macrotext =
             SecureValues(assignment, active)
-
         local prefix = "miab-page-" .. page .. "-"
 
         button:SetAttribute(
@@ -740,12 +603,28 @@ local function ConfigureSecurePages(
 
     UnregisterStateDriver(button, "miabpage")
 
+    local flyouts = {}
+
+    for page = 1, MAX_PAGES do
+        local assignment = GetAssignment(barID, buttonID, page)
+
+        if assignment and assignment.type == "flyout" then
+            flyouts[page] = assignment.id
+        end
+    end
+
+    if button.ConfigureActionSetFlyouts then
+        button:ConfigureActionSetFlyouts(
+            active and flyouts or nil,
+            "miab-currentpage"
+        )
+    end
+
     if active then
         button:SetAttribute(
             "_onstate-miabpage",
             SECURE_PAGE_SNIPPET
         )
-
         button:SetAttribute("state-miabpage", nil)
 
         RegisterStateDriver(
@@ -754,7 +633,6 @@ local function ConfigureSecurePages(
             driver
         )
     else
-        -- Preserve the legacy Normal-page action path.
         activePageByBar[barID] = 1
 
         ApplySecureAssignment(
@@ -770,10 +648,6 @@ local function ConfigureSecurePages(
 
     return true
 end
-
--- ============================================================
--- CURSOR ACTION PICKUP
--- ============================================================
 
 local function FindMountDisplayIndex(mountID)
     if not mountID
@@ -810,20 +684,15 @@ local function PickupAssignment(assignment)
                 slot,
                 bank
             )
-
         elseif slot and PickupSpellBookItem then
             PickupSpellBookItem(slot, bank)
         end
-
     elseif assignment.type == "spell" then
         C_Spell.PickupSpell(assignment.id)
-
     elseif assignment.type == "item" then
         C_Item.PickupItem(assignment.id)
-
     elseif assignment.type == "macro" then
         PickupMacro(assignment.id)
-
     elseif assignment.type == "mount" then
         local displayIndex = assignment.index
 
@@ -859,20 +728,14 @@ local function PickupAssignment(assignment)
 
             C_Spell.PickupSpell(spellID)
         end
-
     elseif assignment.type == "battlepet" then
         C_PetJournal.PickupPet(assignment.id)
-
     else
         return false
     end
 
     return GetCursorInfo() ~= nil
 end
-
--- ============================================================
--- CUSTOM BUTTON
--- ============================================================
 
 function ns.CreateCustomActionButton(
     parent,
@@ -888,6 +751,9 @@ function ns.CreateCustomActionButton(
     )
 
     button:SetSize(36, 36)
+    button:SetAttribute("checkselfcast", true)
+    button:SetAttribute("checkfocuscast", true)
+    button:SetAttribute("checkmouseovercast", true)
 
     local activePage = activePageByBar[barID] or 1
 
@@ -901,7 +767,6 @@ function ns.CreateCustomActionButton(
 
     ns.InitializeButtonFlyout(button, function()
         local assignment = CurrentAssignment()
-
         return assignment and assignment.type,
             assignment and assignment.id
     end)
@@ -929,7 +794,6 @@ function ns.CreateCustomActionButton(
 
     local background =
         button:CreateTexture(nil, "BACKGROUND")
-
     background:SetAllPoints()
     background:SetColorTexture(
         0.08,
@@ -937,12 +801,10 @@ function ns.CreateCustomActionButton(
         0.08,
         0.85
     )
-
     button.Background = background
 
     local icon =
         button:CreateTexture(nil, "ARTWORK")
-
     icon:SetPoint("TOPLEFT", 2, -2)
     icon:SetPoint("BOTTOMRIGHT", -2, 2)
     button.icon = icon
@@ -953,7 +815,6 @@ function ns.CreateCustomActionButton(
         button,
         "CooldownFrameTemplate"
     )
-
     cooldown:SetAllPoints(icon)
     button.cooldown = cooldown
 
@@ -962,7 +823,6 @@ function ns.CreateCustomActionButton(
         "OVERLAY",
         "NumberFontNormal"
     )
-
     count:SetPoint(
         "BOTTOMRIGHT",
         button,
@@ -970,7 +830,6 @@ function ns.CreateCustomActionButton(
         -2,
         2
     )
-
     button.Count = count
 
     local hotKey = button:CreateFontString(
@@ -978,7 +837,6 @@ function ns.CreateCustomActionButton(
         "OVERLAY",
         "NumberFontNormalSmall"
     )
-
     hotKey:SetPoint(
         "TOPRIGHT",
         button,
@@ -986,14 +844,12 @@ function ns.CreateCustomActionButton(
         -3,
         -3
     )
-
     hotKey:SetJustifyH("RIGHT")
     hotKey:SetText("")
     button.HotKey = hotKey
 
     local checked =
         button:CreateTexture(nil, "OVERLAY")
-
     checked:SetAllPoints(icon)
     checked:SetColorTexture(
         1,
@@ -1001,12 +857,10 @@ function ns.CreateCustomActionButton(
         0,
         0.25
     )
-
     button:SetCheckedTexture(checked)
 
     local border =
         button:CreateTexture(nil, "OVERLAY")
-
     border:SetAllPoints()
     border:SetAtlas("UI-HUD-ActionBar-IconFrame")
     button.Border = border
@@ -1017,7 +871,6 @@ function ns.CreateCustomActionButton(
         nil,
         6
     )
-
     dragHighlight:SetPoint(
         "TOPLEFT",
         button,
@@ -1025,7 +878,6 @@ function ns.CreateCustomActionButton(
         2,
         -2
     )
-
     dragHighlight:SetPoint(
         "BOTTOMRIGHT",
         button,
@@ -1033,14 +885,12 @@ function ns.CreateCustomActionButton(
         -2,
         2
     )
-
     dragHighlight:SetColorTexture(
         0.15,
         0.8,
         0.78,
         0.32
     )
-
     dragHighlight:Hide()
     button.DragHighlight = dragHighlight
 
@@ -1051,7 +901,6 @@ function ns.CreateCustomActionButton(
         end
 
         local cursorType = GetCursorInfo()
-
         local validCursor =
             cursorType == "spell"
             or cursorType == "item"
@@ -1070,7 +919,6 @@ function ns.CreateCustomActionButton(
 
     local function ApplyColor()
         local appearance = GetAppearance(barID)
-
         local rangeColoring =
             not appearance
             or appearance.rangeColoring ~= false
@@ -1089,18 +937,14 @@ function ns.CreateCustomActionButton(
                 0.25,
                 0.25
             )
-
         elseif usabilityColoring then
             if usableState then
                 icon:SetVertexColor(1, 1, 1)
-
             elseif resourceState then
                 icon:SetVertexColor(0.5, 0.5, 1)
-
             else
                 icon:SetVertexColor(0.4, 0.4, 0.4)
             end
-
         else
             icon:SetVertexColor(1, 1, 1)
         end
@@ -1138,16 +982,6 @@ function ns.CreateCustomActionButton(
             icon:Hide()
         end
     end
-
-    ns.InitializeSpellCasting(button, function()
-        local assignment = CurrentAssignment()
-
-        if assignment
-            and assignment.type == "spell"
-        then
-            return assignment.id
-        end
-    end)
 
     ns.InitializeButtonSpellFeedback(button, function()
         return GetAssignmentSpellID(
@@ -1426,7 +1260,6 @@ function ns.CreateCustomActionButton(
                 C_PetJournal.GetSummonedPetGUID()
                     == assignment.id
             )
-
         elseif assignment
             and assignment.type == "mount"
         then
@@ -1436,7 +1269,6 @@ function ns.CreateCustomActionButton(
                 )
 
             button:SetChecked(active == true)
-
         else
             button:SetChecked(false)
         end
@@ -1448,10 +1280,6 @@ function ns.CreateCustomActionButton(
         UpdateRange()
         UpdateCheckedState()
     end
-
-    -- ========================================================
-    -- ACTIVE PAGE VISUALS
-    -- ========================================================
 
     local suppressRelease = false
     local suppressedClick = false
@@ -1480,10 +1308,6 @@ function ns.CreateCustomActionButton(
             barID,
             buttonID
         )
-
-        if button.RefreshCasting then
-            button:RefreshCasting()
-        end
 
         activePage =
             activePageByBar[barID] or 1
@@ -1523,7 +1347,6 @@ function ns.CreateCustomActionButton(
 
             activePage = page
             activePageByBar[barID] = page
-
             RefreshPageVisuals()
 
             if not InCombatLockdown()
@@ -1533,10 +1356,6 @@ function ns.CreateCustomActionButton(
             end
         end
     )
-
-    -- ========================================================
-    -- DRAG AND DROP
-    -- ========================================================
 
     local function AssignFromCursor()
         if InCombatLockdown() then
@@ -1553,7 +1372,6 @@ function ns.CreateCustomActionButton(
                 type = "flyout",
                 id = info1,
             }
-
         elseif cursorType == "spell" then
             local mountID =
                 info3
@@ -1565,32 +1383,27 @@ function ns.CreateCustomActionButton(
                 type = mountID and "mount" or "spell",
                 id = mountID or info3,
             }
-
         elseif cursorType == "item" then
             assignment = {
                 type = "item",
                 id = info1,
             }
-
         elseif cursorType == "macro" then
             assignment = {
                 type = "macro",
                 id = info1,
             }
-
         elseif cursorType == "mount" then
             assignment = {
                 type = "mount",
                 id = info1,
                 index = info2,
             }
-
         elseif cursorType == "battlepet" then
             assignment = {
                 type = "battlepet",
                 id = info1,
             }
-
         elseif cursorType == "action" then
             local actionType, actionID, subType =
                 GetActionInfo(info1)
@@ -1600,25 +1413,21 @@ function ns.CreateCustomActionButton(
                     type = "flyout",
                     id = actionID,
                 }
-
             elseif actionType == "spell" then
                 assignment = {
                     type = "spell",
                     id = actionID,
                 }
-
             elseif actionType == "item" then
                 assignment = {
                     type = "item",
                     id = actionID,
                 }
-
             elseif actionType == "macro" then
                 assignment = {
                     type = "macro",
                     id = actionID,
                 }
-
             elseif actionType == "companion"
                 and subType == "MOUNT"
             then
@@ -1633,7 +1442,6 @@ function ns.CreateCustomActionButton(
                         id = mountID,
                     }
                 end
-
             elseif (
                 actionType == "battlepet"
                 or actionType == "summonpet"
@@ -1650,7 +1458,6 @@ function ns.CreateCustomActionButton(
         end
 
         local previous = CurrentAssignment()
-
         ClearCursor()
 
         if previous
@@ -1672,7 +1479,6 @@ function ns.CreateCustomActionButton(
 
         ns.ClearDragHighlight()
         UpdateAssignment()
-
         return true
     end
 
@@ -1683,7 +1489,6 @@ function ns.CreateCustomActionButton(
             placementGeneration + 1
 
         local generation = placementGeneration
-
         button:SetAttribute("type", nil)
 
         C_Timer.After(0, function()
@@ -1692,6 +1497,8 @@ function ns.CreateCustomActionButton(
             end
 
             cursorHandled = false
+            suppressRelease = false
+            suppressedClick = false
 
             if not InCombatLockdown() then
                 UpdateAssignment()
@@ -1711,7 +1518,6 @@ function ns.CreateCustomActionButton(
 
             ArmPlacementGuard()
             AssignFromCursor()
-
             button:SetAttribute("type", nil)
         end
     )
@@ -1728,7 +1534,6 @@ function ns.CreateCustomActionButton(
             if down then
                 placementGeneration =
                     placementGeneration + 1
-
                 suppressRelease = false
                 cursorHandled = false
 
@@ -1737,8 +1542,6 @@ function ns.CreateCustomActionButton(
                     self:SetAttribute("type", nil)
                 end
 
-                -- Do not re-register paging immediately
-                -- before a normal spell click.
                 return
             end
 
@@ -1752,7 +1555,6 @@ function ns.CreateCustomActionButton(
                 suppressedClick = true
                 ArmPlacementGuard()
                 AssignFromCursor()
-
                 self:SetAttribute("type", nil)
             end
         end
@@ -1778,7 +1580,6 @@ function ns.CreateCustomActionButton(
                 if restore then
                     UpdateAssignment()
                 end
-
             elseif not suppressedClick then
                 UpdateCooldown()
                 UpdateCheckedState()
@@ -1822,7 +1623,6 @@ function ns.CreateCustomActionButton(
 
             suppressRelease = true
             cursorHandled = false
-
             SetAssignment(barID, buttonID, nil)
             UpdateAssignment()
         end
@@ -1851,17 +1651,14 @@ function ns.CreateCustomActionButton(
                 if name then
                     GameTooltip:SetText(name)
                 end
-
             elseif assignment.type == "spell" then
                 GameTooltip:SetSpellByID(
                     assignment.id
                 )
-
             elseif assignment.type == "item" then
                 GameTooltip:SetItemByID(
                     assignment.id
                 )
-
             elseif assignment.type == "macro" then
                 local macroName =
                     GetMacroInfo(assignment.id)
@@ -1869,7 +1666,6 @@ function ns.CreateCustomActionButton(
                 if macroName then
                     GameTooltip:SetText(macroName)
                 end
-
             elseif assignment.type == "mount" then
                 local mountName, spellID =
                     C_MountJournal.GetMountInfoByID(
@@ -1878,11 +1674,9 @@ function ns.CreateCustomActionButton(
 
                 if spellID then
                     GameTooltip:SetSpellByID(spellID)
-
                 elseif mountName then
                     GameTooltip:SetText(mountName)
                 end
-
             elseif assignment.type == "battlepet" then
                 local _, customName,
                     _, _, _, _, _, speciesName =
@@ -1919,12 +1713,7 @@ function ns.CreateCustomActionButton(
         end
     )
 
-    -- ========================================================
-    -- ACTION UPDATES
-    -- ========================================================
-
     local eventFrame = CreateFrame("Frame")
-
     eventFrame:RegisterEvent("PLAYER_LOGIN")
     eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
     eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
@@ -1943,7 +1732,6 @@ function ns.CreateCustomActionButton(
             if event == "PLAYER_REGEN_ENABLED" then
                 placementGeneration =
                     placementGeneration + 1
-
                 suppressRelease = false
                 suppressedClick = false
                 cursorHandled = false
@@ -1980,7 +1768,6 @@ function ns.CreateCustomActionButton(
 
             if button:IsMouseOver() then
                 UpdateDragHighlight()
-
             elseif dragHighlight:IsShown() then
                 ns.SetDragHighlight(button, false)
             end
@@ -2026,10 +1813,6 @@ function ns.CreateCustomActionButton(
     return button
 end
 
--- ============================================================
--- BAR PAGING REFRESH
--- ============================================================
-
 function ns.ConfigureCustomBarPaging(barID)
     if InCombatLockdown() then
         return false, "combat"
@@ -2062,22 +1845,6 @@ function ns.ConfigureCustomBarPaging(barID)
 
     return true
 end
-
--- ============================================================
--- TEMPORARY ALPHA PAGING TEST COMMANDS
--- ============================================================
---
--- /miabpage 9 2           Edit Page 2 of Bar 9
--- /miabpage 9 auto        Return to automatic paging
--- /miabpage 9 shift 2     SHIFT switches to Page 2
--- /miabpage 9 shift off   Disable SHIFT paging
--- /miabpage 9 stealth 3   Stealth switches to Page 3
--- /miabpage 9 stealth off Remove stealth rule
--- /miabpage 9 status      Print the current page driver
---
--- Configuration is performed outside combat.
--- The registered driver performs action switching.
--- ============================================================
 
 SLASH_MIABCUSTOMPAGE1 = "/miabpage"
 
@@ -2132,7 +1899,6 @@ SlashCmdList.MIABCUSTOMPAGE = function(message)
             .. " driver: "
             .. driver
         )
-
         print(
             prefix
             .. "Editing Page "

@@ -247,26 +247,12 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     if type(button.WrapScript) ~= "function" then
         FlyoutError("SecureHandlerStateTemplate is missing from a button.")
         button.UpdateFlyout = function() end
+        button.ConfigureActionSetFlyouts = function() end
         return
     end
 
-    local popup = CreateFrame(
-        "Frame", nil, UIParent, "SecureHandlerStateTemplate"
-    )
-    popup:SetSize(
-        BUTTON_SIZE + 16,
-        BUTTON_SIZE + 16
-    )
-    popup:SetFrameStrata("DIALOG")
-    popup:Hide()
-
-    local children = {}
-    button.MIABFlyoutChildren = children
-
-    ns.MIABFlyoutPopups =
-        ns.MIABFlyoutPopups
+    ns.MIABFlyoutPopups = ns.MIABFlyoutPopups
         or setmetatable({}, { __mode = "k" })
-    ns.MIABFlyoutPopups[popup] = true
 
     if not ns.CloseMIABFlyouts then
         function ns.CloseMIABFlyouts(except)
@@ -288,35 +274,113 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
 
     if not ns.MIABSecureFlyoutManager then
         ns.MIABSecureFlyoutManager = CreateFrame(
-            "Frame",
-            nil,
-            UIParent,
-            "SecureHandlerStateTemplate"
+            "Frame", nil, UIParent, "SecureHandlerStateTemplate"
         )
     end
 
     local manager = ns.MIABSecureFlyoutManager
-    local popupIndex =
-        (manager:GetAttribute("miab-popup-count") or 0) + 1
+    local children = {}
+    local popups = {}
+    local configuredID
+    local configuredDirection
+    local currentPopup
+    local usesActionSets = false
+    local setFlyoutIDs = {}
+    button.MIABFlyoutChildren = children
 
-    manager:SetFrameRef(
-        "miab-popup-" .. popupIndex,
-        popup
+    local arrowContainer = CreateFrame("Frame", nil, button)
+    arrowContainer:SetAllPoints(button)
+    arrowContainer:EnableMouse(false)
+    arrowContainer:Hide()
+    button:SetFrameRef("miab-flyout-arrow", arrowContainer)
+
+    local arrow = arrowContainer:CreateTexture(
+        nil, "OVERLAY", nil, 5
     )
-    manager:SetAttribute("miab-popup-count", popupIndex)
+    arrow:SetSize(12, 8)
+    button.Arrow = arrow
 
-    button:SetFrameRef("miab-manager", manager)
-    button:SetFrameRef("miab-popup", popup)
-    popup:SetFrameRef("miab-owner", button)
+    if not button.BorderShadow then
+        button.BorderShadow =
+            button:CreateTexture(nil, "BACKGROUND")
+        button.BorderShadow:SetAllPoints(button)
+        button.BorderShadow:SetColorTexture(
+            0, 0, 0, 0.35
+        )
+        button.BorderShadow:Hide()
+    end
+
+    button.arrowMainAxisSize = 12
+    button.arrowCrossAxisSize = 8
+    button.closedArrowOffset = 1
+    button.openArrowOffset = 3
+    button.popupOffset = 4
+    button.popupCrossAxisSize = BUTTON_SIZE
+    button.arrowNormalTexture = "UI-HUD-ActionBar-Flyout"
+    button.arrowOverTexture = "UI-HUD-ActionBar-Flyout"
+    button.arrowDownTexture = "UI-HUD-ActionBar-Flyout"
+
+    arrow:SetTexture(
+        "Interface\\ChatFrame\\ChatFrameExpandArrow"
+    )
+    arrow:Hide()
+
+    local function PopupDirection()
+        local direction = button:GetAttribute("flyoutDirection")
+        return DIRECTIONS[direction] and direction or "UP"
+    end
+
+    local function PositionArrow(direction, shown)
+        arrow:Show()
+        arrowContainer:SetShown(shown)
+
+        if direction == "UP" then
+            arrow:SetRotation(math.pi / 2)
+        elseif direction == "DOWN" then
+            arrow:SetRotation(-math.pi / 2)
+        elseif direction == "LEFT" then
+            arrow:SetRotation(math.pi)
+        else
+            arrow:SetRotation(0)
+        end
+
+        arrow:ClearAllPoints()
+
+        if direction == "UP" then
+            arrow:SetPoint("TOP", button, "TOP", 0, 0)
+        elseif direction == "DOWN" then
+            arrow:SetPoint("BOTTOM", button, "BOTTOM", 0, 0)
+        elseif direction == "LEFT" then
+            arrow:SetPoint("LEFT", button, "LEFT", 0, 0)
+        else
+            arrow:SetPoint("RIGHT", button, "RIGHT", 0, 0)
+        end
+    end
 
     button:WrapScript(button, "OnClick", [[
-        local flyout = self:GetAttribute("miab-secure-flyout")
-        local shouldClick = down == (self:GetAttribute("useOnKeyDown") == true)
+        local useSets = self:GetAttribute("miab-flyout-uses-sets")
+        local stateKey = self:GetAttribute("miab-flyout-state-key")
+            or "miab-currentset"
+        local selected = tonumber(self:GetAttribute(stateKey)) or 1
+        local flyout
+        local popup
+
+        if useSets then
+            flyout = self:GetAttribute("miab-flyout-set-" .. selected)
+            popup = self:GetFrameRef("miab-flyout-popup-" .. selected)
+        else
+            flyout = self:GetAttribute("miab-secure-flyout")
+            popup = self:GetFrameRef("miab-popup")
+        end
+
+        local shouldClick = (down and true or false)
+            == (self:GetAttribute("useOnKeyDown") == true)
         local actionType = self:GetAttribute("type")
 
-        if flyout and shouldClick and actionType then
+        if flyout and popup and shouldClick and actionType then
             self:SetAttribute("miab-restore-type", actionType)
             self:SetAttribute("miab-flyout-click", true)
+            self:SetAttribute("miab-flyout-click-set", selected)
             self:SetAttribute("type", nil)
             return nil, true
         else
@@ -327,7 +391,17 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
             self:SetAttribute("miab-flyout-click", nil)
             self:SetAttribute("type", self:GetAttribute("miab-restore-type"))
 
-            local popup = self:GetFrameRef("miab-popup")
+            local selected = tonumber(
+                self:GetAttribute("miab-flyout-click-set")
+            ) or 1
+            local popup
+
+            if self:GetAttribute("miab-flyout-uses-sets") then
+                popup = self:GetFrameRef("miab-flyout-popup-" .. selected)
+            else
+                popup = self:GetFrameRef("miab-popup")
+            end
+
             local manager = self:GetFrameRef("miab-manager")
 
             if popup then
@@ -354,11 +428,9 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         end
     ]])
 
-    local function AddChild(index)
+    local function AddChild(popup, index)
         local child = CreateFrame(
-            "CheckButton",
-            nil,
-            popup,
+            "CheckButton", nil, popup,
             "SecureActionButtonTemplate,SecureHandlerStateTemplate"
         )
         child:SetSize(BUTTON_SIZE, BUTTON_SIZE)
@@ -403,8 +475,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
 
         if button.MIABFeedbackAppearance then
             ns.ApplyButtonFeedbackAppearance(
-                child,
-                button.MIABFeedbackAppearance
+                child, button.MIABFeedbackAppearance
             )
         end
 
@@ -465,126 +536,79 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
             GameTooltip:Hide()
         end)
 
-        children[index] = child
+        popup.MIABChildren[index] = child
+        children[#children + 1] = child
         return child
     end
 
-    local arrow = button.Arrow
-        or button:CreateTexture(nil, "OVERLAY", nil, 5)
-    arrow:SetSize(12, 8)
-    button.Arrow = arrow
-
-    if not button.BorderShadow then
-        button.BorderShadow =
-            button:CreateTexture(nil, "BACKGROUND")
-        button.BorderShadow:SetAllPoints(button)
-        button.BorderShadow:SetColorTexture(
-            0, 0, 0, 0.35
+    local function CreatePopup(id)
+        local popup = CreateFrame(
+            "Frame", nil, UIParent, "SecureHandlerStateTemplate"
         )
-        button.BorderShadow:Hide()
+        popup:SetSize(BUTTON_SIZE + 16, BUTTON_SIZE + 16)
+        popup:SetFrameStrata("DIALOG")
+        popup:Hide()
+        popup.MIABChildren = {}
+        popup.MIABID = id
+
+        ns.MIABFlyoutPopups[popup] = true
+
+        local popupIndex =
+            (manager:GetAttribute("miab-popup-count") or 0) + 1
+
+        manager:SetFrameRef("miab-popup-" .. popupIndex, popup)
+        manager:SetAttribute("miab-popup-count", popupIndex)
+
+        button:SetFrameRef("miab-manager", manager)
+
+        popups[id] = popup
+        return popup
     end
 
-    button.arrowMainAxisSize = 12
-    button.arrowCrossAxisSize = 8
-    button.closedArrowOffset = 1
-    button.openArrowOffset = 3
-    button.popupOffset = 4
-    button.popupCrossAxisSize = BUTTON_SIZE
-    button.arrowNormalTexture = "UI-HUD-ActionBar-Flyout"
-    button.arrowOverTexture = "UI-HUD-ActionBar-Flyout"
-    button.arrowDownTexture = "UI-HUD-ActionBar-Flyout"
-
-    arrow:SetTexture(
-        "Interface\\ChatFrame\\ChatFrameExpandArrow"
-    )
-
-    local configuredID, configuredDirection
-
-    button.UpdateFlyout = function(self)
-        if InCombatLockdown() then return end
-
-        local kind, id = resolveActionType()
-
-        if kind ~= "flyout" then
-            id = nil
-        end
-
-        if not id and kind == "flyout" and self.actionSlot then
-            local actionKind, actionID =
-                GetActionInfo(self.actionSlot)
-            if actionKind == "flyout" then
-                id = actionID
-            end
-        end
-
-        if not id and kind == "flyout" then
-            id = self:GetAttribute("spell")
-        end
-
-        local direction = self:GetAttribute("flyoutDirection")
-        if not DIRECTIONS[direction] then
-            direction = "UP"
-        end
-
-        if configuredID == id
-            and configuredDirection == direction
-        then
-            return
-        end
-
-        configuredID, configuredDirection = id, direction
-        popup:Hide()
-        self:SetAttribute("miab-secure-flyout", nil)
-        arrow:SetShown(id ~= nil)
-
-        if direction == "UP" then
-            arrow:SetRotation(math.pi / 2)
-        elseif direction == "DOWN" then
-            arrow:SetRotation(-math.pi / 2)
-        elseif direction == "LEFT" then
-            arrow:SetRotation(math.pi)
-        else
-            arrow:SetRotation(0)
-        end
-
-        arrow:ClearAllPoints()
-
-        if direction == "UP" then
-            arrow:SetPoint("TOP", self, "TOP", 0, 0)
-        elseif direction == "DOWN" then
-            arrow:SetPoint("BOTTOM", self, "BOTTOM", 0, 0)
-        elseif direction == "LEFT" then
-            arrow:SetPoint("LEFT", self, "LEFT", 0, 0)
-        else
-            arrow:SetPoint("RIGHT", self, "RIGHT", 0, 0)
-        end
-
+    local function PreparePopup(id, direction, force)
         if not id or not GetFlyoutInfo or not GetFlyoutSlotInfo then
-            return
+            return nil
+        end
+
+        local popup = popups[id]
+
+        if popup and popup.MIABDirection == direction and not force then
+            return popup
         end
 
         local _, _, count, known = GetFlyoutInfo(id)
-        if not known or not count or count == 0 then return end
+        if not known or not count or count == 0 then
+            return nil
+        end
+
+        if not popup then
+            popup = CreatePopup(id)
+        end
 
         local valid = {}
-
         for i = 1, count do
             local spellID, overrideID, isKnown =
                 GetFlyoutSlotInfo(id, i)
 
             if isKnown and spellID then
                 valid[#valid + 1] = {
-                    spellID,
-                    overrideID or spellID,
+                    spellID, overrideID or spellID,
                 }
             end
         end
 
-        for i, data in ipairs(valid) do
-            local child = children[i] or AddChild(i)
+        if #valid == 0 then
+            popup:Hide()
+            return nil
+        end
 
-            child:SetAttribute("spell", data[2])
-            child.MIABSpellID = data[2]
+        popup:Hide()
+        popup.MIABDirection = direction
+
+        for i, data in ipairs(valid) do
+            local child = popup.MIABChildren[i] or AddChild(popup, i)
+            child:SetAttribute("spell", data[1])
+            child.MIABSpellID = data[1]
             child:RefreshCasting()
             child.icon:SetTexture(
                 C_Spell.GetSpellTexture(data[2])
@@ -592,39 +616,32 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
             child:UpdateCooldown()
             child:ClearAllPoints()
 
-            local offset =
-                (i - 1) * (BUTTON_SIZE + 4)
+            local offset = (i - 1) * (BUTTON_SIZE + 4)
 
             if direction == "UP" then
                 child:SetPoint(
-                    "BOTTOM", popup, "BOTTOM",
-                    0, 8 + offset
+                    "BOTTOM", popup, "BOTTOM", 0, 8 + offset
                 )
             elseif direction == "DOWN" then
                 child:SetPoint(
-                    "TOP", popup, "TOP",
-                    0, -8 - offset
+                    "TOP", popup, "TOP", 0, -8 - offset
                 )
             elseif direction == "LEFT" then
                 child:SetPoint(
-                    "RIGHT", popup, "RIGHT",
-                    -8 - offset, 0
+                    "RIGHT", popup, "RIGHT", -8 - offset, 0
                 )
             else
                 child:SetPoint(
-                    "LEFT", popup, "LEFT",
-                    8 + offset, 0
+                    "LEFT", popup, "LEFT", 8 + offset, 0
                 )
             end
 
             child:Show()
         end
 
-        for i = #valid + 1, #children do
-            children[i]:Hide()
+        for i = #valid + 1, #popup.MIABChildren do
+            popup.MIABChildren[i]:Hide()
         end
-
-        if #valid == 0 then return end
 
         local length =
             16 + #valid * BUTTON_SIZE + (#valid - 1) * 4
@@ -638,37 +655,126 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
         popup:ClearAllPoints()
 
         if direction == "UP" then
-            popup:SetPoint(
-                "BOTTOM", self, "TOP", 0, 4
-            )
+            popup:SetPoint("BOTTOM", button, "TOP", 0, 4)
         elseif direction == "DOWN" then
-            popup:SetPoint(
-                "TOP", self, "BOTTOM", 0, -4
-            )
+            popup:SetPoint("TOP", button, "BOTTOM", 0, -4)
         elseif direction == "LEFT" then
-            popup:SetPoint(
-                "RIGHT", self, "LEFT", -4, 0
-            )
+            popup:SetPoint("RIGHT", button, "LEFT", -4, 0)
         else
-            popup:SetPoint(
-                "LEFT", self, "RIGHT", 4, 0
-            )
+            popup:SetPoint("LEFT", button, "RIGHT", 4, 0)
         end
 
-        self:SetAttribute("miab-secure-flyout", id)
+        return popup
+    end
+
+    button.UpdateFlyout = function(self)
+        if InCombatLockdown() then return end
+
+        local kind, id = resolveActionType()
+        if kind ~= "flyout" then id = nil end
+
+        if not id and kind == "flyout" and self.actionSlot then
+            local actionKind, actionID =
+                GetActionInfo(self.actionSlot)
+            if actionKind == "flyout" then
+                id = actionID
+            end
+        end
+
+        if not id and kind == "flyout" then
+            id = self:GetAttribute("spell")
+        end
+
+        local direction = PopupDirection()
+
+        if configuredID == id
+            and configuredDirection == direction
+        then
+            return
+        end
+
+        configuredID = id
+        configuredDirection = direction
+        currentPopup = PreparePopup(id, direction)
+
+        self:SetAttribute("miab-secure-flyout", currentPopup and id or nil)
+
+        if currentPopup then
+            self:SetFrameRef("miab-popup", currentPopup)
+        end
+
+        PositionArrow(direction, currentPopup ~= nil)
+    end
+
+    button.ConfigureActionSetFlyouts = function(self, flyoutsBySet, stateKey)
+        if InCombatLockdown() then return end
+
+        self:SetAttribute(
+            "miab-flyout-state-key",
+            stateKey or "miab-currentset"
+        )
+        usesActionSets = type(flyoutsBySet) == "table"
+        setFlyoutIDs = flyoutsBySet or {}
+        local direction = PopupDirection()
+
+        for _, popup in pairs(popups) do
+            if popup:IsShown() then
+                popup:Hide()
+            end
+        end
+
+        self:SetAttribute("miab-flyout-uses-sets", usesActionSets or nil)
+
+        if usesActionSets then
+            for setNumber = 1, 12 do
+                local id = setFlyoutIDs[setNumber]
+                local popup = PreparePopup(id, direction)
+
+                self:SetAttribute(
+                    "miab-flyout-set-" .. setNumber,
+                    popup and id or nil
+                )
+
+                if popup then
+                    self:SetFrameRef(
+                        "miab-flyout-popup-" .. setNumber, popup
+                    )
+                end
+            end
+        end
+
+        configuredID = nil
+        configuredDirection = nil
+        self:UpdateFlyout()
     end
 
     local cooldownEvents = CreateFrame("Frame")
     cooldownEvents:RegisterEvent("SPELL_UPDATE_COOLDOWN")
     cooldownEvents:RegisterEvent("SPELL_UPDATE_CHARGES")
     cooldownEvents:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+    cooldownEvents:RegisterEvent("SPELLS_CHANGED")
 
-    cooldownEvents:SetScript("OnEvent", function()
-        if not popup:IsShown() then return end
+    cooldownEvents:SetScript("OnEvent", function(_, event)
+        if event == "SPELLS_CHANGED" and not InCombatLockdown() then
+            for _, popup in pairs(popups) do
+                popup.MIABDirection = nil
+            end
 
-        for _, child in ipairs(children) do
-            if child:IsShown() then
-                child:UpdateCooldown()
+            if usesActionSets then
+                button:ConfigureActionSetFlyouts(setFlyoutIDs)
+            else
+                configuredID = nil
+                button:UpdateFlyout()
+            end
+        end
+
+        for _, popup in pairs(popups) do
+            if popup:IsShown() then
+                for _, child in ipairs(popup.MIABChildren) do
+                    if child:IsShown() then
+                        child:UpdateCooldown()
+                    end
+                end
             end
         end
     end)
@@ -1104,10 +1210,50 @@ local function SetSecureValues(assignment)
     return nil
 end
 
+local function GetFlyoutSpellbookIcon(flyoutID)
+    if not C_SpellBook
+        or not C_SpellBook.GetNumSpellBookSkillLines
+        or not C_SpellBook.GetSpellBookSkillLineInfo
+        or not C_SpellBook.GetSpellBookItemInfo
+        or not Enum or not Enum.SpellBookSpellBank
+        or not Enum.SpellBookItemType
+    then
+        return nil
+    end
+
+    local bank = Enum.SpellBookSpellBank.Player
+    local flyoutType = Enum.SpellBookItemType.Flyout
+
+    for index = 1, C_SpellBook.GetNumSpellBookSkillLines() do
+        local line = C_SpellBook.GetSpellBookSkillLineInfo(index)
+
+        if line then
+            local first = (line.itemIndexOffset or 0) + 1
+            local last = first + (line.numSpellBookItems or 0) - 1
+
+            for slot = first, last do
+                local info = C_SpellBook.GetSpellBookItemInfo(
+                    slot, bank
+                )
+
+                if info and info.itemType == flyoutType
+                    and info.actionID == flyoutID
+                then
+                    return info.iconID
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
 local function GetSetIcon(assignment)
     if not assignment then return nil end
 
-    if assignment.type == "spell" then
+    if assignment.type == "flyout" then
+        return GetFlyoutSpellbookIcon(assignment.id) or 134400
+    elseif assignment.type == "spell" then
         local info = C_Spell.GetSpellInfo(assignment.id)
         return info and info.iconID
     elseif assignment.type == "item" then
@@ -1778,6 +1924,20 @@ function ns.CreateActionButton(parent, name, actionSlot)
             setNumber = 1
         end
 
+        local previousSet = tonumber(
+            self:GetAttribute("miab-currentset")
+        ) or 1
+
+        if previousSet ~= setNumber then
+            local oldPopup = self:GetFrameRef(
+                "miab-flyout-popup-" .. previousSet
+            )
+
+            if oldPopup and oldPopup:IsShown() then
+                oldPopup:Hide()
+            end
+        end
+
         if setNumber == 1 then
             self:SetAttribute("type", "action")
             self:SetAttribute(
@@ -1827,6 +1987,15 @@ function ns.CreateActionButton(parent, name, actionSlot)
         self:SetAttribute("alt-ctrl-action*", slot)
         self:SetAttribute("alt-ctrl-shift-action*", slot)
         self:SetAttribute("miab-currentset", setNumber)
+
+        local arrowFrame = self:GetFrameRef("miab-flyout-arrow")
+        if arrowFrame then
+            if self:GetAttribute("miab-flyout-set-" .. setNumber) then
+                arrowFrame:Show()
+            else
+                arrowFrame:Hide()
+            end
+        end
 
         if self:GetAttribute("miab-layout-visible") == false then
             self:Hide()
@@ -2094,6 +2263,34 @@ function ns.CreateActionButton(parent, name, actionSlot)
             button:SetAttribute(prefix .. "action", slot)
         end
 
+        local flyoutsBySet = {}
+        local nativeKind, nativeID = GetActionInfo(actionSlot)
+
+        if nativeKind == "flyout" then
+            flyoutsBySet[1] = nativeID
+        end
+
+        for number = 2, MAX_SETS do
+            local assignment = ns.GetRegularBarSetAssignment(
+                barID, buttonID, number
+            )
+
+            if assignment then
+                if assignment.type == "flyout" then
+                    flyoutsBySet[number] = assignment.id
+                elseif assignment.type == "action" then
+                    local actionKind, actionID =
+                        GetActionInfo(assignment.id)
+
+                    if actionKind == "flyout" then
+                        flyoutsBySet[number] = actionID
+                    end
+                end
+            end
+        end
+
+        button:ConfigureActionSetFlyouts(flyoutsBySet)
+
         button:SetAttribute(
             "_onstate-miabset",
             unifiedSetHandler
@@ -2203,6 +2400,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
             UnregisterStateDriver(button, "miabset")
             button:SetAttribute("miab-unified", nil)
             button:SetAttribute("miab-currentset", 1)
+            button:ConfigureActionSetFlyouts(nil)
             activeSet = 1
         end
 
@@ -2235,6 +2433,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
                 then
                     activeSet = nextSet
                     UpdateAll()
+
                     if not InCombatLockdown()
                         and ns.RefreshEmptyButtonVisibility
                     then
