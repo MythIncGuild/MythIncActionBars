@@ -73,18 +73,26 @@ local resizeGrip
 local logoTexture
 local applyToAllButton
 local spellbookLayoutButton
-local moveWindowButton
 
 local bulkOverlay
 local bulkSourceLabel
-local bulkSourceViewport
-local bulkPreviousButton
-local bulkNextButton
-local bulkPageLabel
-local bulkButtons = {}
+local bulkSourcePopup
 local bulkSourceButtons = {}
+local bulkSourcePreviousButton
+local bulkSourceNextButton
+local bulkSourcePageLabel
 local bulkSourceID
 local bulkSourcePage = 1
+local bulkTargetButtons = {}
+local bulkTargetPage = 1
+local bulkTargetPreviousButton
+local bulkTargetNextButton
+local bulkTargetPageLabel
+local bulkTargetSelection = {}
+local bulkSettingSelection = {}
+local bulkButtons = {}
+local bulkSelectionLabel
+local bulkApplyButton
 
 local isMinimized = false
 local spellbookLayout = false
@@ -111,9 +119,9 @@ local BAR_VISIBLE_COUNT = BAR_COLUMNS * BAR_VISIBLE_ROWS
 local SELECTOR_TOP = -208
 local SELECTOR_ROW_HEIGHT = BAR_BUTTON_HEIGHT + BAR_BUTTON_SPACING
 
-local BULK_SOURCE_COLUMNS = 4
-local BULK_SOURCE_ROWS = 2
-local BULK_SOURCE_COUNT = BULK_SOURCE_COLUMNS * BULK_SOURCE_ROWS
+local BULK_SETTINGS = {
+    "Layout", "Appearance", "Visibility", "Action Pages",
+}
 
 local CATEGORY_NAMES = {
     "Layout", "Appearance", "Visibility", "Action Pages", "Keybinds",
@@ -200,6 +208,9 @@ local function UnlockSelected(value)
 end
 
 local function HideBulkDialog()
+    if bulkSourcePopup then
+        bulkSourcePopup:Hide()
+    end
     if bulkOverlay then
         bulkOverlay:Hide()
     end
@@ -762,216 +773,190 @@ local function GetBulkBarIDs()
     return ids
 end
 
+local function BulkBarLabel(barID)
+    local settings = ns.db.bars[barID]
+    if not settings then return "Unknown Bar" end
+    local label = "Bar " .. barID
+    if settings.name and settings.name ~= label then
+        label = label .. " - " .. settings.name
+    end
+    return label
+end
+
+local function BulkTargets()
+    local result = {}
+    for _, id in ipairs(GetBulkBarIDs()) do
+        if id ~= bulkSourceID then
+            result[#result + 1] = id
+        end
+    end
+    return result
+end
+
+local function BulkPagesSupported()
+    return bulkSourceID and ns.BarSupportsActionPages(bulkSourceID)
+end
+
+local function RefreshBulkSourceList()
+    if not bulkSourcePopup then return end
+    local ids = GetBulkBarIDs()
+    local pages = math.max(1, math.ceil(#ids / 7))
+    bulkSourcePage = math.max(1, math.min(bulkSourcePage, pages))
+    local offset = (bulkSourcePage - 1) * 7
+    local shown = math.min(7, #ids - offset)
+    bulkSourcePopup:SetHeight(12 + shown * 32 + (pages > 1 and 34 or 0))
+    for i, button in ipairs(bulkSourceButtons) do
+        local id = ids[offset + i]
+        button.barID = id
+        button:SetShown(id ~= nil)
+        if id then
+            button:SetText(BulkBarLabel(id))
+            button:SetSelected(id == bulkSourceID)
+        end
+    end
+    bulkSourcePreviousButton:SetShown(pages > 1)
+    bulkSourceNextButton:SetShown(pages > 1)
+    bulkSourcePageLabel:SetShown(pages > 1)
+    bulkSourcePreviousButton:SetEnabled(bulkSourcePage > 1)
+    bulkSourceNextButton:SetEnabled(bulkSourcePage < pages)
+    bulkSourcePageLabel:SetText(bulkSourcePage .. " / " .. pages)
+    for _, button in ipairs({bulkSourcePreviousButton, bulkSourceNextButton}) do
+        button:ClearAllPoints()
+    end
+    bulkSourcePreviousButton:SetPoint("BOTTOMLEFT", bulkSourcePopup, "BOTTOMLEFT", 8, 5)
+    bulkSourceNextButton:SetPoint("BOTTOMRIGHT", bulkSourcePopup, "BOTTOMRIGHT", -8, 5)
+    bulkSourcePageLabel:ClearAllPoints()
+    bulkSourcePageLabel:SetPoint("BOTTOM", bulkSourcePopup, "BOTTOM", 0, 12)
+end
+
 local function RefreshBulkDialog()
     if not bulkOverlay then return end
-
     local ids = GetBulkBarIDs()
-    local sourceExists = false
-
-    for _, barID in ipairs(ids) do
-        if barID == bulkSourceID then
-            sourceExists = true
-            break
+    local valid = false
+    for _, id in ipairs(ids) do
+        if id == bulkSourceID then valid = true end
+    end
+    if not valid then bulkSourceID = ids[1] end
+    if bulkSourceID then bulkTargetSelection[bulkSourceID] = nil end
+    bulkSourceLabel:SetText(bulkSourceID and BulkBarLabel(bulkSourceID) or "Choose source bar")
+    if not BulkPagesSupported() then bulkSettingSelection["Action Pages"] = nil end
+    local targets = BulkTargets()
+    local pages = math.max(1, math.ceil(#targets / 12))
+    bulkTargetPage = math.max(1, math.min(bulkTargetPage, pages))
+    local offset = (bulkTargetPage - 1) * 12
+    local targetCount = 0
+    for _, id in ipairs(targets) do
+        if bulkTargetSelection[id] then targetCount = targetCount + 1 end
+    end
+    for i, button in ipairs(bulkTargetButtons) do
+        local id = targets[offset + i]
+        button.barID = id
+        button:SetShown(id ~= nil)
+        if id then
+            button:SetText(BulkBarLabel(id))
+            button:SetSelected(bulkTargetSelection[id] == true)
         end
     end
-
-    if not sourceExists then
-        bulkSourceID = ids[1]
+    bulkTargetPreviousButton:SetShown(pages > 1)
+    bulkTargetNextButton:SetShown(pages > 1)
+    bulkTargetPageLabel:SetShown(pages > 1)
+    bulkTargetPreviousButton:SetEnabled(bulkTargetPage > 1)
+    bulkTargetNextButton:SetEnabled(bulkTargetPage < pages)
+    bulkTargetPageLabel:SetText(bulkTargetPage .. " / " .. pages)
+    local settingCount = 0
+    for _, kind in ipairs(BULK_SETTINGS) do
+        local available = kind ~= "Action Pages" or BulkPagesSupported()
+        local selected = available and bulkSettingSelection[kind] == true
+        bulkButtons[kind]:SetSelected(selected)
+        bulkButtons[kind]:SetEnabled(available)
+        if selected then settingCount = settingCount + 1 end
     end
-
-    local pageCount = math.max(
-        1, math.ceil(#ids / BULK_SOURCE_COUNT)
-    )
-
-    bulkSourcePage = math.max(
-        1, math.min(bulkSourcePage, pageCount)
-    )
-
-    local first = (bulkSourcePage - 1) * BULK_SOURCE_COUNT + 1
-
-    for index, button in ipairs(bulkSourceButtons) do
-        local barID = ids[first + index - 1]
-        local settings = barID and ns.db.bars[barID]
-
-        button.barID = barID
-
-        if settings then
-            button:SetText(
-                settings.name or ("Bar " .. tostring(barID))
-            )
-            button:SetSelected(barID == bulkSourceID)
-            button:Show()
-        else
-            button:Hide()
-        end
-    end
-
-    local source = bulkSourceID and ns.db.bars[bulkSourceID]
-
-    bulkSourceLabel:SetText(
-        source
-            and (
-                "Source: "
-                .. (source.name or ("Bar " .. tostring(bulkSourceID)))
-            )
-            or "No action bars available"
-    )
-
-    local supportsPaging = source
-        and ns.BarSupportsActionPages(bulkSourceID)
-
-    for kind, button in pairs(bulkButtons) do
-        if source and (kind ~= "Action Pages" or supportsPaging) then
-            button:Enable()
-        else
-            button:Disable()
-        end
-    end
-
-    bulkPageLabel:SetText(
-        tostring(bulkSourcePage) .. " / " .. tostring(pageCount)
-    )
-
-    if bulkSourcePage > 1 then
-        bulkPreviousButton:Enable()
-    else
-        bulkPreviousButton:Disable()
-    end
-
-    if bulkSourcePage < pageCount then
-        bulkNextButton:Enable()
-    else
-        bulkNextButton:Disable()
-    end
-
-    local showNavigation = pageCount > 1
-    bulkPreviousButton:SetShown(showNavigation)
-    bulkNextButton:SetShown(showNavigation)
-    bulkPageLabel:SetShown(showNavigation)
+    bulkSelectionLabel:SetText(targetCount .. " target bars / " .. settingCount .. " setting groups selected")
+    bulkApplyButton:SetEnabled(bulkSourceID ~= nil and targetCount > 0 and settingCount > 0)
+    RefreshBulkSourceList()
 end
 
-local function SetBulkSource(barID)
-    if not barID or not ns.db.bars[barID] or GetTarget(barID) then
-        return
-    end
-
-    bulkSourceID = barID
-    RefreshBulkDialog()
-end
-
-local function ApplyBulkSettings(kind)
+local function ApplyBulkSettings()
     if InCombatLockdown() then
         Message("Settings cannot be copied during combat.")
         return
     end
-
     local sourceID = bulkSourceID
-    local settings = sourceID and ns.db.bars[sourceID]
-
-    if not settings or GetTarget(sourceID) then
-        RefreshBulkDialog()
+    local sourceSettings = sourceID and ns.db.bars[sourceID]
+    if not sourceSettings then return end
+    local targets = {}
+    for _, id in ipairs(BulkTargets()) do
+        if bulkTargetSelection[id] then targets[#targets + 1] = id end
+    end
+    local layout = bulkSettingSelection.Layout == true
+    local appearance = bulkSettingSelection.Appearance == true
+    local visibility = bulkSettingSelection.Visibility == true
+    local pages = BulkPagesSupported() and bulkSettingSelection["Action Pages"] == true
+    if #targets == 0 or not (layout or appearance or visibility or pages) then
+        Message("Select target bars and settings first.")
         return
     end
-
-    local supportsPaging = ns.BarSupportsActionPages(sourceID)
-
-    if kind == "Action Pages" and not supportsPaging then
-        return
+    if appearance then ns.GetBarAppearance(sourceID) end
+    if visibility then
+        ns.GetBarVisibilitySettings(sourceID)
+        ns.GetBarFadeSettings(sourceID)
     end
-
-    ns.GetBarAppearance(sourceID)
-    ns.GetBarVisibilitySettings(sourceID)
-    ns.GetBarFadeSettings(sourceID)
-
-    if supportsPaging then
-        ns.GetBarActionPageSettings(sourceID)
-    end
-
-    local source = DeepCopy(settings)
-
-    local copyAppearance =
-        kind == "Appearance" or kind == "All Settings"
-
-    local copyVisibility =
-        kind == "Visibility" or kind == "All Settings"
-
-    local copyLayout = kind == "All Settings"
-
-    local copyPages = supportsPaging
-        and (kind == "Action Pages" or kind == "All Settings")
-
+    if pages then ns.GetBarActionPageSettings(sourceID) end
+    local source = DeepCopy(sourceSettings)
     local changed = 0
-
-    for _, barID in ipairs(GetBulkBarIDs()) do
-        local destination = ns.db.bars[barID]
-
-        if barID ~= sourceID and destination then
+    local skipped = 0
+    for _, id in ipairs(targets) do
+        local destination = ns.db.bars[id]
+        if destination and id ~= sourceID then
             local touched = false
-            local destinationSupportsPaging =
-                ns.BarSupportsActionPages(barID)
-
-            if copyAppearance then
-                destination.appearance = DeepCopy(
-                    source.appearance or {}
-                )
-                touched = true
-            end
-
-            if copyVisibility then
-                destination.visibility = DeepCopy(
-                    source.visibility or {}
-                )
-                touched = true
-            end
-
-            if copyLayout then
-                for _, key in ipairs({
-                    "buttonCount", "buttonSize", "spacing",
-                    "columns", "scale",
-                }) do
-                    if source[key] ~= nil then
-                        destination[key] = DeepCopy(source[key])
+            local pageCompatible = pages
+                and ns.BarSupportsActionPages(id)
+                and destination.source == source.source
+            if layout then
+                for _, field in ipairs({"buttonCount", "buttonSize", "spacing", "columns", "scale"}) do
+                    if source[field] ~= nil then
+                        destination[field] = DeepCopy(source[field])
                     end
                 end
-
                 touched = true
             end
-
-            if copyPages and destinationSupportsPaging then
-                destination.actionPages = DeepCopy(
-                    source.actionPages or {}
-                )
+            if appearance then
+                destination.appearance = DeepCopy(source.appearance or {})
                 touched = true
             end
-
-            if touched then
-                if copyLayout or copyVisibility
-                    or (copyPages and destinationSupportsPaging)
-                then
-                    ns.UpdateBar(barID)
+            if visibility then
+                destination.visibility = DeepCopy(source.visibility or {})
+                touched = true
+            end
+            if pages then
+                if pageCompatible then
+                    local destinationPages = destination.actionPages or {}
+                    local copiedPages = DeepCopy(source.actionPages or {})
+                    copiedPages.setsBySpec = destinationPages.setsBySpec
+                    destination.actionPages = copiedPages
+                    touched = true
+                else
+                    skipped = skipped + 1
                 end
-
-                ns.ApplyBarAppearance(barID)
-                ns.RefreshBarFade(barID, true)
-                ns.RefreshBarMover(barID)
-
+            end
+            if touched then
+                if layout or visibility or (pages and pageCompatible) then
+                    ns.UpdateBar(id)
+                end
+                ns.ApplyBarAppearance(id)
+                ns.RefreshBarFade(id, true)
+                ns.RefreshBarMover(id)
                 changed = changed + 1
             end
         end
     end
-
-    if copyLayout and ns.ApplyAllKeybinds then
+    if layout and changed > 0 and ns.ApplyAllKeybinds then
         ns.ApplyAllKeybinds()
     end
-
     HideBulkDialog()
     RefreshControls()
-
-    Message(
-        kind .. " copied from "
-        .. (source.name or ("Bar " .. tostring(sourceID)))
-        .. " to " .. changed .. " other action bars."
-    )
+    local extra = skipped > 0 and (" Action Pages skipped on " .. skipped .. " incompatible bars.") or ""
+    Message("Copied settings from " .. BulkBarLabel(sourceID) .. " to " .. changed .. " bars." .. extra)
 end
 
 local function ShowBulkDialog()
@@ -979,189 +964,188 @@ local function ShowBulkDialog()
         Message("Settings cannot be copied during combat.")
         return
     end
-
-    if GetTarget() then return end
-    if not GetSelectedSettings() then return end
-
+    if GetTarget() or not GetSelectedSettings() then return end
     if not bulkOverlay then
         bulkOverlay = CreateFrame("Frame", nil, panel)
         bulkOverlay:SetAllPoints(panel)
         bulkOverlay:SetFrameLevel(panel:GetFrameLevel() + 80)
         bulkOverlay:EnableMouse(true)
-
         local dim = bulkOverlay:CreateTexture(nil, "BACKGROUND")
         dim:SetAllPoints()
-        dim:SetColorTexture(0, 0, 0, 0.65)
-
-        local box = CreateFrame(
-            "Frame", nil, bulkOverlay, "BackdropTemplate"
-        )
-        box:SetSize(620, 438)
+        dim:SetColorTexture(0, 0, 0, 0.68)
+        local box = CreateFrame("Frame", nil, bulkOverlay, "BackdropTemplate")
+        box:SetSize(690, 620)
         box:SetPoint("CENTER")
         widgets.SetBackdrop(box, colors.background)
-
-        local title = box:CreateFontString(nil, "OVERLAY")
-        SetFont(title, 15)
-        title:SetPoint("TOPLEFT", box, "TOPLEFT", 22, -20)
-        title:SetText("Apply to All")
-
-        bulkSourceLabel = box:CreateFontString(nil, "OVERLAY")
-        SetFont(bulkSourceLabel, 11)
-        bulkSourceLabel:SetPoint(
-            "TOPLEFT", box, "TOPLEFT", 22, -52
-        )
-        bulkSourceLabel:SetWidth(576)
-        bulkSourceLabel:SetJustifyH("LEFT")
-        bulkSourceLabel:SetWordWrap(false)
-
-        bulkSourceViewport = CreateFrame("Frame", nil, box)
-        bulkSourceViewport:SetSize(576, 64)
-        bulkSourceViewport:SetPoint(
-            "TOPLEFT", box, "TOPLEFT", 22, -78
-        )
-        bulkSourceViewport:EnableMouseWheel(true)
-
-        bulkSourceViewport:SetScript("OnMouseWheel", function(_, delta)
-            local ids = GetBulkBarIDs()
-            local pageCount = math.max(
-                1, math.ceil(#ids / BULK_SOURCE_COUNT)
-            )
-
-            if delta < 0 then
-                bulkSourcePage = math.min(
-                    pageCount, bulkSourcePage + 1
-                )
-            elseif delta > 0 then
-                bulkSourcePage = math.max(
-                    1, bulkSourcePage - 1
-                )
+        box:EnableMouse(true)
+        box:SetScript("OnMouseDown", function()
+            if bulkSourcePopup then
+                bulkSourcePopup:Hide()
             end
+        end)
+        local function Label(text, size, x, y, muted)
+            local label = box:CreateFontString(nil, "OVERLAY")
+            SetFont(label, size, muted)
+            label:SetPoint("TOPLEFT", box, "TOPLEFT", x, y)
+            label:SetText(text)
+            return label
+        end
+        Label("Apply to...", 16, 22, -20)
+        Label("Source Bar", 12, 22, -61)
+        bulkSourceLabel = widgets.CreateButton(box, "Choose source bar", 644, 34, 22, -86, function()
+            if bulkSourcePopup:IsShown() then
+                bulkSourcePopup:Hide()
+            else
+                RefreshBulkSourceList()
+                bulkSourcePopup:Show()
+            end
+        end)
+        local sourceArrowLeft = bulkSourceLabel:CreateLine(nil, "OVERLAY")
+        sourceArrowLeft:SetThickness(2)
+        sourceArrowLeft:SetColorTexture(unpack(colors.accent))
+        sourceArrowLeft:SetStartPoint("RIGHT", bulkSourceLabel, -25, 3)
+        sourceArrowLeft:SetEndPoint("RIGHT", bulkSourceLabel, -19, -3)
 
+        local sourceArrowRight = bulkSourceLabel:CreateLine(nil, "OVERLAY")
+        sourceArrowRight:SetThickness(2)
+        sourceArrowRight:SetColorTexture(unpack(colors.accent))
+        sourceArrowRight:SetStartPoint("RIGHT", bulkSourceLabel, -19, -3)
+        sourceArrowRight:SetEndPoint("RIGHT", bulkSourceLabel, -13, 3)
+        Label("Target Bars", 12, 22, -140)
+        widgets.CreateButton(box, "Select All Bars", 136, 28, 382, -133, function()
+            bulkSourcePopup:Hide()
+            for _, id in ipairs(BulkTargets()) do bulkTargetSelection[id] = true end
             RefreshBulkDialog()
         end)
-
-        for index = 1, BULK_SOURCE_COUNT do
-            local column = (index - 1) % BULK_SOURCE_COLUMNS
-            local row = math.floor(
-                (index - 1) / BULK_SOURCE_COLUMNS
-            )
-
-            local button = widgets.CreateTabButton(
-                bulkSourceViewport,
-                "",
-                138,
-                28,
-                column * 146,
-                -row * 34,
-                function(self)
-                    SetBulkSource(self.barID)
-                end
-            )
-
+        widgets.CreateButton(box, "Clear", 136, 28, 530, -133, function()
+            bulkSourcePopup:Hide()
+            bulkTargetSelection = {}
+            RefreshBulkDialog()
+        end)
+        local targetContainer = CreateFrame("Frame", nil, box)
+        targetContainer:SetSize(644, 108)
+        targetContainer:SetPoint("TOPLEFT", box, "TOPLEFT", 22, -179)
+        targetContainer:EnableMouseWheel(true)
+        targetContainer:SetScript("OnMouseWheel", function(_, delta)
+            local pages = math.max(1, math.ceil(#BulkTargets() / 12))
+            bulkTargetPage = math.max(1, math.min(pages, bulkTargetPage - delta))
+            RefreshBulkDialog()
+        end)
+        for index = 1, 12 do
+            local column = (index - 1) % 4
+            local row = math.floor((index - 1) / 4)
+            local button = widgets.CreateTabButton(targetContainer, "", 155, 32, column * 163, -row * 37, function(self)
+                if not self.barID then return end
+                bulkSourcePopup:Hide()
+                bulkTargetSelection[self.barID] = not bulkTargetSelection[self.barID] or nil
+                RefreshBulkDialog()
+            end)
             button.label:ClearAllPoints()
-            button.label:SetPoint(
-                "LEFT", button, "LEFT", 6, 0
-            )
-            button.label:SetPoint(
-                "RIGHT", button, "RIGHT", -6, 0
-            )
+            button.label:SetPoint("LEFT", button, "LEFT", 7, 0)
+            button.label:SetPoint("RIGHT", button, "RIGHT", -7, 0)
             button.label:SetWordWrap(false)
-
-            bulkSourceButtons[index] = button
+            bulkTargetButtons[index] = button
         end
-
-        bulkPreviousButton = widgets.CreateButton(
-            box, "Previous", 100, 26, 22, -150,
-            function()
-                bulkSourcePage = math.max(1, bulkSourcePage - 1)
-                RefreshBulkDialog()
+        bulkTargetPreviousButton = widgets.CreateButton(box, "Previous", 106, 25, 22, -297, function()
+            bulkTargetPage = math.max(1, bulkTargetPage - 1)
+            RefreshBulkDialog()
+        end)
+        bulkTargetNextButton = widgets.CreateButton(box, "Next", 106, 25, 560, -297, function()
+            bulkTargetPage = bulkTargetPage + 1
+            RefreshBulkDialog()
+        end)
+        bulkTargetPageLabel = Label("", 10, 322, -304, true)
+        bulkTargetPageLabel:ClearAllPoints()
+        bulkTargetPageLabel:SetPoint("TOP", box, "TOP", 0, -304)
+        Label("Settings to Copy", 12, 22, -348)
+        widgets.CreateButton(box, "All Settings", 136, 28, 382, -341, function()
+            bulkSourcePopup:Hide()
+            for _, kind in ipairs(BULK_SETTINGS) do
+                if kind ~= "Action Pages" or BulkPagesSupported() then
+                    bulkSettingSelection[kind] = true
+                end
             end
-        )
-
-        bulkNextButton = widgets.CreateButton(
-            box, "Next", 100, 26, 498, -150,
-            function()
-                bulkSourcePage = bulkSourcePage + 1
-                RefreshBulkDialog()
-            end
-        )
-
-        bulkPageLabel = box:CreateFontString(nil, "OVERLAY")
-        SetFont(bulkPageLabel, 10, true)
-        bulkPageLabel:SetPoint(
-            "TOP", box, "TOP", 0, -158
-        )
-
-        local note = box:CreateFontString(nil, "OVERLAY")
-        SetFont(note, 11, true)
-        note:SetPoint(
-            "TOPLEFT", box, "TOPLEFT", 22, -194
-        )
-        note:SetWidth(576)
-        note:SetJustifyH("LEFT")
-        note:SetText(
-            "Copy from the selected source to all other regular and custom action bars."
-        )
-
-        for index, name in ipairs({
-            "Appearance", "Visibility", "Action Pages", "All Settings",
-        }) do
-            local kind = name
+            RefreshBulkDialog()
+        end)
+        widgets.CreateButton(box, "Clear", 136, 28, 530, -341, function()
+            bulkSourcePopup:Hide()
+            bulkSettingSelection = {}
+            RefreshBulkDialog()
+        end)
+        for index, kind in ipairs(BULK_SETTINGS) do
             local column = (index - 1) % 2
             local row = math.floor((index - 1) / 2)
-
-            bulkButtons[name] = widgets.CreateButton(
-                box,
-                name,
-                276,
-                32,
-                22 + column * 300,
-                -228 - row * 42,
-                function()
-                    ApplyBulkSettings(kind)
-                end
-            )
+            bulkButtons[kind] = widgets.CreateTabButton(box, kind, 316, 34, 22 + column * 328, -385 - row * 41, function()
+                bulkSourcePopup:Hide()
+                bulkSettingSelection[kind] = not bulkSettingSelection[kind] or nil
+                RefreshBulkDialog()
+            end)
         end
-
-        local detail = box:CreateFontString(nil, "OVERLAY")
-        SetFont(detail, 10, true)
-        detail:SetPoint(
-            "TOPLEFT", box, "TOPLEFT", 22, -318
-        )
-        detail:SetWidth(576)
-        detail:SetJustifyH("LEFT")
-        detail:SetText(
-            "All Settings includes layout, appearance, visibility, and supported paging.\n"
-            .. "Positions, names, enabled states, actions, and keybinds are preserved.\n"
-            .. "Action Pages copies only to bars that support modifier paging."
-        )
-
-        widgets.CreateButton(
-            box, "Cancel", 120, 30, 478, -390,
-            HideBulkDialog
-        )
-
+        bulkSelectionLabel = Label("", 11, 22, -481, true)
+        local detail = Label("Bar names, positions, enabled states, actions, and keybinds are preserved.", 10, 22, -507, true)
+        detail:SetWidth(644)
+        detail:SetWordWrap(true)
+        Label("Action Pages copy rules only to the same type of bar; assigned spells stay unchanged.", 10, 22, -524, true)
+        widgets.CreateButton(box, "Cancel", 136, 34, 382, -565, HideBulkDialog)
+        bulkApplyButton = widgets.CreateButton(box, "Apply Now", 136, 34, 530, -565, ApplyBulkSettings)
+        bulkSourcePopup = CreateFrame("Frame", nil, box, "BackdropTemplate")
+        bulkSourcePopup:SetWidth(644)
+        bulkSourcePopup:SetPoint("TOPLEFT", bulkSourceLabel, "BOTTOMLEFT", 0, -3)
+        bulkSourcePopup:SetFrameLevel(box:GetFrameLevel() + 20)
+        widgets.SetBackdrop(bulkSourcePopup, colors.background)
+        bulkSourcePopup:EnableMouse(true)
+        bulkSourcePopup:EnableMouseWheel(true)
+        bulkSourcePopup:Hide()
+        bulkSourcePopup:SetScript("OnMouseWheel", function(_, delta)
+            local pages = math.max(1, math.ceil(#GetBulkBarIDs() / 7))
+            bulkSourcePage = math.max(1, math.min(pages, bulkSourcePage - delta))
+            RefreshBulkSourceList()
+        end)
+        for index = 1, 7 do
+            local button = widgets.CreateTabButton(bulkSourcePopup, "", 626, 29, 9, -6 - (index - 1) * 32, function(self)
+                if not self.barID then return end
+                bulkSourceID = self.barID
+                bulkTargetSelection[bulkSourceID] = nil
+                bulkSourcePopup:Hide()
+                bulkTargetPage = 1
+                RefreshBulkDialog()
+            end)
+            button.label:ClearAllPoints()
+            button.label:SetPoint("LEFT", button, "LEFT", 10, 0)
+            button.label:SetPoint("RIGHT", button, "RIGHT", -10, 0)
+            button.label:SetWordWrap(false)
+            bulkSourceButtons[index] = button
+        end
+        bulkSourcePreviousButton = widgets.CreateButton(bulkSourcePopup, "Previous", 106, 25, 8, -1, function()
+            bulkSourcePage = math.max(1, bulkSourcePage - 1)
+            RefreshBulkSourceList()
+        end)
+        bulkSourceNextButton = widgets.CreateButton(bulkSourcePopup, "Next", 106, 25, 530, -1, function()
+            bulkSourcePage = bulkSourcePage + 1
+            RefreshBulkSourceList()
+        end)
+        bulkSourcePageLabel = bulkSourcePopup:CreateFontString(nil, "OVERLAY")
+        SetFont(bulkSourcePageLabel, 10, true)
         bulkOverlay:EnableKeyboard(true)
         bulkOverlay:SetPropagateKeyboardInput(false)
         bulkOverlay:SetScript("OnKeyDown", function(_, key)
             if key == "ESCAPE" then
-                HideBulkDialog()
+                if bulkSourcePopup:IsShown() then bulkSourcePopup:Hide() else HideBulkDialog() end
             end
         end)
     end
-
     bulkSourceID = selectedBarID
     bulkSourcePage = 1
-
-    for index, barID in ipairs(GetBulkBarIDs()) do
-        if barID == bulkSourceID then
-            bulkSourcePage = math.floor(
-                (index - 1) / BULK_SOURCE_COUNT
-            ) + 1
+    bulkTargetPage = 1
+    bulkTargetSelection = {}
+    bulkSettingSelection = { Appearance = true }
+    for index, id in ipairs(GetBulkBarIDs()) do
+        if id == bulkSourceID then
+            bulkSourcePage = math.floor((index - 1) / 7) + 1
             break
         end
     end
-
+    bulkSourcePopup:Hide()
     RefreshBulkDialog()
     bulkOverlay:Show()
 end
@@ -2029,35 +2013,6 @@ local function CreateHeader()
         end
     )
 
-    moveWindowButton = widgets.CreateButton(
-        panel,
-        "Drag to Move",
-        124,
-        24,
-        580,
-        -10,
-        function() end
-    )
-
-    moveWindowButton:RegisterForDrag(
-        "LeftButton"
-    )
-
-    moveWindowButton:SetScript(
-        "OnDragStart",
-        function()
-            if resizeInProgress then return end
-            panel:StartMoving()
-        end
-    )
-
-    moveWindowButton:SetScript(
-        "OnDragStop",
-        function()
-            panel:StopMovingOrSizing()
-        end
-    )
-
     generalTab = widgets.CreateTabButton(
         panel,
         "General",
@@ -2847,7 +2802,7 @@ local function CreateBottomActions()
 
     applyToAllButton = widgets.CreateButton(
         panel,
-        "Apply to All...",
+        "Apply to...",
         160,
         30,
         636,
