@@ -510,7 +510,8 @@ local function SecureValues(assignment, pagingEnabled)
     if assignment.type == "flyout" then
         return "flyout", assignment.id
     elseif assignment.type == "spell" then
-        return "spell", assignment.id
+        local info = C_Spell.GetSpellInfo(assignment.id)
+        return "spell", info and info.name or assignment.id
     elseif assignment.type == "item" then
         return "item",
             nil,
@@ -998,7 +999,8 @@ function ns.CreateCustomActionButton(
             ns.SetButtonCooldownDuration(
                 button.chargeCooldown,
                 C_Spell.GetSpellChargeDuration(
-                    spellID
+                    spellID,
+                    true
                 )
             )
         else
@@ -1043,13 +1045,10 @@ function ns.CreateCustomActionButton(
                     spellID
                 )
 
-            if duration then
-                cooldown:SetCooldownFromDurationObject(
-                    duration
-                )
-            else
-                cooldown:Clear()
-            end
+            ns.SetButtonCooldownDuration(
+                cooldown,
+                duration
+            )
 
             return
         end

@@ -286,6 +286,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     local currentPopup
     local usesActionSets = false
     local setFlyoutIDs = {}
+    local setStateKey = "miab-currentset"
     button.MIABFlyoutChildren = children
 
     local arrowContainer = CreateFrame("Frame", nil, button)
@@ -489,7 +490,7 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
                 )
                 ns.SetButtonCooldownDuration(
                     self.chargeCooldown,
-                    C_Spell.GetSpellChargeDuration(spellID)
+                    C_Spell.GetSpellChargeDuration(spellID, true)
                 )
                 self.Count:SetText(
                     C_Spell.GetSpellDisplayCount(spellID)
@@ -709,9 +710,10 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     button.ConfigureActionSetFlyouts = function(self, flyoutsBySet, stateKey)
         if InCombatLockdown() then return end
 
+        setStateKey = stateKey or "miab-currentset"
         self:SetAttribute(
             "miab-flyout-state-key",
-            stateKey or "miab-currentset"
+            setStateKey
         )
         usesActionSets = type(flyoutsBySet) == "table"
         setFlyoutIDs = flyoutsBySet or {}
@@ -753,15 +755,24 @@ function ns.InitializeButtonFlyout(button, resolveActionType)
     cooldownEvents:RegisterEvent("SPELL_UPDATE_CHARGES")
     cooldownEvents:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
     cooldownEvents:RegisterEvent("SPELLS_CHANGED")
+    cooldownEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+
+    local spellbookRefreshPending = false
 
     cooldownEvents:SetScript("OnEvent", function(_, event)
-        if event == "SPELLS_CHANGED" and not InCombatLockdown() then
+        if event == "SPELLS_CHANGED" and InCombatLockdown() then
+            spellbookRefreshPending = true
+        elseif event == "SPELLS_CHANGED"
+            or (event == "PLAYER_REGEN_ENABLED" and spellbookRefreshPending)
+        then
+            spellbookRefreshPending = false
+
             for _, popup in pairs(popups) do
                 popup.MIABDirection = nil
             end
 
             if usesActionSets then
-                button:ConfigureActionSetFlyouts(setFlyoutIDs)
+                button:ConfigureActionSetFlyouts(setFlyoutIDs, setStateKey)
             else
                 configuredID = nil
                 button:UpdateFlyout()
@@ -1639,8 +1650,10 @@ function ns.CreateActionButton(parent, name, actionSlot)
 
         local kind, id = GetActionInfo(currentActionSlot)
 
-        if kind == "spell" or kind == "macro" then
+        if kind == "spell" then
             return id
+        elseif kind == "macro" then
+            return id and GetMacroSpell(id)
         end
     end)
 
@@ -1656,7 +1669,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
                 )
                 ns.SetButtonCooldownDuration(
                     button.chargeCooldown,
-                    C_Spell.GetSpellChargeDuration(spellID)
+                    C_Spell.GetSpellChargeDuration(spellID, true)
                 )
             elseif assignment and assignment.type == "item" then
                 local start, duration, enabled =
@@ -1683,7 +1696,7 @@ function ns.CreateActionButton(parent, name, actionSlot)
         )
         ns.SetButtonCooldownDuration(
             button.chargeCooldown,
-            C_ActionBar.GetActionChargeDuration(currentActionSlot)
+            C_ActionBar.GetActionChargeDuration(currentActionSlot, true)
         )
     end
 

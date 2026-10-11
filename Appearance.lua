@@ -52,6 +52,12 @@ local function EnsureAppearance(settings)
         showCooldownText = true,
         showRecharge = true,
         showRechargeText = false,
+        showRechargeSwipe = false,
+        cooldownSwipeOpacity = 0.8,
+        rechargeSwipeOpacity = 0.3,
+        rechargeEdgeOpacity = 1,
+        dimExhaustedCharges = true,
+        exhaustedDimOpacity = 0.4,
         showCount = true,
         showMacroName = true,
         showKeybind = true,
@@ -64,6 +70,21 @@ local function EnsureAppearance(settings)
     for key, value in pairs(defaults) do
         if appearance[key] == nil then
             appearance[key] = value
+        end
+    end
+    local effectColors = {
+        cooldownSwipeColor = {r = 0, g = 0, b = 0, a = 1},
+        rechargeSwipeColor = {r = 0, g = 0, b = 0, a = 1},
+        rechargeEdgeColor = {r = 1, g = 1, b = 1, a = 1},
+    }
+    for key, values in pairs(effectColors) do
+        if type(appearance[key]) ~= "table" then
+            appearance[key] = {}
+        end
+        for component, value in pairs(values) do
+            if appearance[key][component] == nil then
+                appearance[key][component] = value
+            end
         end
     end
     for prefix, definition in pairs(TEXT_DEFAULTS) do
@@ -177,38 +198,165 @@ local function StyleText(
         color.a or 1
     )
 end
+local function Clamp01(value, fallback)
+    return math.max(0, math.min(1, Number(value, fallback)))
+end
+local function ResolveAssignmentSpell(assignment)
+    if not assignment then return nil end
+    if assignment.type == "spell" then
+        return assignment.id
+    end
+    if assignment.type == "macro" then
+        return GetMacroSpell(assignment.id)
+    end
+    if assignment.type == "mount" then
+        local _, spellID = C_MountJournal.GetMountInfoByID(assignment.id)
+        return spellID
+    end
+    if assignment.type == "action" then
+        local kind, id = GetActionInfo(assignment.id)
+        if kind == "spell" then return id end
+        if kind == "macro" then return GetMacroSpell(id) end
+    end
+    return nil
+end
+local function ResolveFeedbackSpell(button)
+    if button.MIABSpellID then
+        return button.MIABSpellID
+    end
+    if button.barID and button.buttonID
+        and ns.db and ns.db.bars
+    then
+        local settings = ns.db.bars[button.barID]
+        if settings and settings.source == "custom"
+            and ns.GetCustomBarPageAssignment
+        then
+            local page = ns.GetCustomBarActivePage
+                and ns.GetCustomBarActivePage(button.barID) or 1
+            return ResolveAssignmentSpell(
+                ns.GetCustomBarPageAssignment(
+                    button.barID, button.buttonID, page
+                )
+            )
+        end
+    end
+    if button.GetCurrentActionSet and button.GetCurrentActionSlot then
+        local setNumber = button.GetCurrentActionSet()
+        if setNumber and setNumber > 1
+            and ns.GetRegularBarSetAssignment
+        then
+            local barID = button:GetParent().barID
+            local slot = button.baseActionSlot
+            if barID and slot then
+                local buttonID = ((slot - 1) % 12) + 1
+                return ResolveAssignmentSpell(
+                    ns.GetRegularBarSetAssignment(barID, buttonID, setNumber)
+                )
+            end
+            return nil
+        end
+        local slot = button.GetCurrentActionSlot()
+        if slot then
+            local kind, id = GetActionInfo(slot)
+            if kind == "spell" then return id end
+            if kind == "macro" then return GetMacroSpell(id) end
+        end
+    end
+    return nil
+end
+local function GetFeedbackCharges(button)
+    if not C_Spell or not C_Spell.GetSpellCharges then return nil end
+    local spellID = ResolveFeedbackSpell(button)
+    if not spellID then return nil end
+    local chargeInfo = C_Spell.GetSpellCharges(spellID)
+    if issecretvalue and issecretvalue(chargeInfo) then
+        return nil
+    end
+    return chargeInfo
+end
+local function PositionsOverlap(appearance)
+    local left = appearance.cooldownPosition or "CENTER"
+    local right = appearance.rechargePosition or "TOPLEFT"
+    if left ~= right then return false end
+    return math.abs(
+        Number(appearance.cooldownOffsetX, 0)
+            - Number(appearance.rechargeOffsetX, 0)
+    ) < 18 and math.abs(
+        Number(appearance.cooldownOffsetY, 0)
+            - Number(appearance.rechargeOffsetY, 0)
+    ) < 18
+end
+local function RefreshChargeFeedback(button)
+    local appearance = button.MIABFeedbackAppearance
+    if not appearance or not button.cooldown
+        or not button.chargeCooldown then
+        return
+    end
+    local avoidOverlap = appearance.showCooldownText ~= false
+        and appearance.showRechargeText == true
+        and PositionsOverlap(appearance)
+    local showDim = appearance.dimExhaustedCharges ~= false
+    local charges = (avoidOverlap or showDim)
+        and GetFeedbackCharges(button) or nil
+    local rechargeActive = charges and charges.isActive == true
+    local hideCooldownNumbers = appearance.showCooldownText == false
+        or (avoidOverlap and rechargeActive == true)
+    if button.MIABHideCooldownNumbers ~= hideCooldownNumbers then
+        button.MIABHideCooldownNumbers = hideCooldownNumbers
+        button.cooldown:SetHideCountdownNumbers(hideCooldownNumbers)
+    end
+    if button.MIABExhaustedDim then
+        local depleted = false
+        if showDim and charges then
+            local count = charges.currentCharges
+            if count ~= nil
+                and (not issecretvalue or not issecretvalue(count))
+            then
+                depleted = count == 0
+            end
+        end
+        button.MIABExhaustedDim:SetAlpha(
+            depleted and Clamp01(appearance.exhaustedDimOpacity, 0.4) or 0
+        )
+    end
+end
 local function ApplyCooldown(button, appearance)
     if button.chargeCooldown then
-        button.chargeCooldown:SetDrawEdge(
-            appearance.showRecharge ~= false
-        )
-        button.chargeCooldown:SetHideCountdownNumbers(
+        local recharge = button.chargeCooldown
+        recharge:SetDrawEdge(appearance.showRecharge ~= false)
+        recharge:SetDrawSwipe(appearance.showRechargeSwipe == true)
+        recharge:SetHideCountdownNumbers(
             appearance.showRechargeText ~= true
         )
+        local swipe = appearance.rechargeSwipeColor or {}
+        recharge:SetSwipeColor(
+            swipe.r or 0, swipe.g or 0, swipe.b or 0,
+            Clamp01(appearance.rechargeSwipeOpacity, 0.3)
+        )
+        local edge = appearance.rechargeEdgeColor or {}
+        if recharge.SetEdgeColor then
+            recharge:SetEdgeColor(
+                edge.r or 1, edge.g or 1, edge.b or 1,
+                Clamp01(appearance.rechargeEdgeOpacity, 1)
+            )
+        end
         StyleText(
-            button.chargeCooldown:GetCountdownFontString(),
-            button,
-            appearance,
-            "recharge",
-            12,
-            "TOPLEFT"
+            recharge:GetCountdownFontString(), button,
+            appearance, "recharge", 12, "TOPLEFT"
         )
     end
     if not button.cooldown then return end
-    button.cooldown:SetDrawSwipe(
-        appearance.showCooldown ~= false
-    )
-    button.cooldown:SetHideCountdownNumbers(
-        appearance.showCooldownText == false
+    button.cooldown:SetDrawSwipe(appearance.showCooldown ~= false)
+    local swipe = appearance.cooldownSwipeColor or {}
+    button.cooldown:SetSwipeColor(
+        swipe.r or 0, swipe.g or 0, swipe.b or 0,
+        Clamp01(appearance.cooldownSwipeOpacity, 0.8)
     )
     StyleText(
-        button.cooldown:GetCountdownFontString(),
-        button,
-        appearance,
-        "cooldown",
-        16,
-        "CENTER"
+        button.cooldown:GetCountdownFontString(), button,
+        appearance, "cooldown", 16, "CENTER"
     )
+    RefreshChargeFeedback(button)
 end
 local function ApplyCountText(button, appearance)
     if not button.Count then return end
@@ -229,6 +377,24 @@ function ns.ApplyButtonFeedbackAppearance(
     appearance
 )
     button.MIABFeedbackAppearance = appearance
+    if button.icon and not button.MIABExhaustedDim then
+        local dim = button:CreateTexture(nil, "OVERLAY", nil, 1)
+        dim:SetAllPoints(button.icon)
+        dim:SetColorTexture(0, 0, 0, 1)
+        dim:SetAlpha(0)
+        button.MIABExhaustedDim = dim
+    end
+    if not button.MIABChargeFeedbackWatcher then
+        button.MIABChargeFeedbackWatcher = true
+        local elapsed = 0
+        button:HookScript("OnUpdate", function(self, delta)
+            elapsed = elapsed + delta
+            if elapsed >= 0.15 then
+                elapsed = 0
+                RefreshChargeFeedback(self)
+            end
+        end)
+    end
     ApplyCooldown(button, appearance)
     ApplyCountText(button, appearance)
     if button.MacroName then
@@ -406,7 +572,6 @@ local function CurrentRegularSet(button)
     end
     return 1
 end
-
 local function HasBlizzardAction(
     settings,
     barID,
@@ -439,24 +604,19 @@ local function HasBlizzardAction(
         return true
     end
     local pages = settings.actionPages or {}
-
     if barID ~= 1 and pages.independentSetsV2 then
         local setNumber = CurrentRegularSet(button)
-
         if setNumber > 1 then
             return ns.GetRegularBarSetAssignment
                 and ns.GetRegularBarSetAssignment(
                     barID, buttonID, setNumber
                 ) ~= nil or false
         end
-
         return HasPage(basePage)
     end
-
     if HasPage(basePage) then
         return true
     end
-
     for _, modifier in ipairs({
         "shift",
         "ctrl",
@@ -573,12 +733,22 @@ function ns.RefreshEmptyButtonVisibility(barID)
                 button
             )
         end
+        if button.Background then
+            local appearance = EnsureAppearance(settings)
+            local opacity = Clamp01(appearance.emptyOpacity, 0.85)
+            if cursorCarryingAction and button.icon
+                and not button.icon:IsShown()
+                and buttonID <= buttonCount
+            then
+                opacity = math.max(opacity, 0.3)
+            end
+            button.Background:SetAlpha(opacity)
+        end
         local independent = settings.source == "blizzard"
             and barID ~= 1
             and settings.actionPages
             and settings.actionPages.independentSetsV2
             and button.GetCurrentActionSet
-
         if independent then
             local appearance = EnsureAppearance(settings)
             local override = appearance.showEmptyButtons ~= false
@@ -587,7 +757,6 @@ function ns.RefreshEmptyButtonVisibility(barID)
                 or (appearance.showEmptyWhileUnlocked ~= false
                     and ns.IsBarUnlocked
                     and ns.IsBarUnlocked(barID))
-
             local layoutVisible = buttonID <= buttonCount
             button:SetAttribute("miab-layout-visible", layoutVisible)
             button:SetAttribute("miab-empty-hide", not override)
@@ -597,7 +766,6 @@ function ns.RefreshEmptyButtonVisibility(barID)
                 and C_ActionBar.HasAction(button.baseActionSlot)
                 or false
             )
-
             for setNumber = 2, 12 do
                 button:SetAttribute(
                     "miab-occupied-" .. setNumber,
@@ -607,7 +775,6 @@ function ns.RefreshEmptyButtonVisibility(barID)
                     ) ~= nil or false
                 )
             end
-
             button:SetAlpha(1)
             button:EnableMouse(true)
             button:SetShown(layoutVisible and show)
