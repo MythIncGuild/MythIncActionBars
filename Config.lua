@@ -45,6 +45,9 @@ local activateOnPressCheckbox
 local barSelectorSection
 local barSelectorViewport
 local barSelectorOffset = 0
+local specialSelectorRowOffset = 0
+local actionSelectorScrollbar
+local specialSelectorScrollbar
 local categoryFrame
 local renameDialog
 local nameControl
@@ -70,6 +73,8 @@ local revertChangesButton
 local resetAllButton
 local minimizeButton
 local resizeGrip
+local lastResizeClickTime = 0
+local resizeHint
 local logoTexture
 local applyToAllButton
 local spellbookLayoutButton
@@ -110,12 +115,17 @@ local resizeBaseScale = 1
 local resizeFixedCenterX
 local resizeFixedTop
 
-local BAR_BUTTON_WIDTH = 124
+local BAR_BUTTON_WIDTH = 118
 local BAR_BUTTON_HEIGHT = 30
 local BAR_BUTTON_SPACING = 6
 local BAR_COLUMNS = 6
 local BAR_VISIBLE_ROWS = 2
 local BAR_VISIBLE_COUNT = BAR_COLUMNS * BAR_VISIBLE_ROWS
+local SPECIAL_VISIBLE_COUNT = BAR_COLUMNS
+local SPECIAL_BAR_IDS = {
+    "petBar", "stanceBar", "extraAction", "zoneAbility",
+    "vehicleControls", "microMenu", "bagBar",
+}
 local SELECTOR_TOP = -208
 local SELECTOR_ROW_HEIGHT = BAR_BUTTON_HEIGHT + BAR_BUTTON_SPACING
 
@@ -158,10 +168,7 @@ end
 local function GetConfigBarIDs()
     local ids = ns.GetBarIDs()
 
-    for _, id in ipairs({
-        "petBar", "stanceBar", "extraAction",
-        "zoneAbility", "vehicleControls",
-    }) do
+    for _, id in ipairs(SPECIAL_BAR_IDS) do
         if GetTarget(id) then
             ids[#ids + 1] = id
         end
@@ -247,6 +254,16 @@ local function FindSelectedIndex()
     return 1
 end
 
+local function GetSpecialBarIDs()
+    local ids = {}
+    for _, id in ipairs(SPECIAL_BAR_IDS) do
+        if GetTarget(id) then
+            ids[#ids + 1] = id
+        end
+    end
+    return ids
+end
+
 local function ClampBarSelectorOffset()
     local maxOffset = math.max(
         0,
@@ -257,10 +274,26 @@ local function ClampBarSelectorOffset()
         0,
         math.min(barSelectorOffset, maxOffset)
     )
+
+    local maxSpecialRow = math.max(
+        0,
+        math.ceil(#GetSpecialBarIDs() / SPECIAL_VISIBLE_COUNT) - 1
+    )
+    specialSelectorRowOffset = math.max(
+        0, math.min(specialSelectorRowOffset, maxSpecialRow)
+    )
 end
 
 local function EnsureSelectedBarVisible()
     if GetTarget() then
+        for index, id in ipairs(GetSpecialBarIDs()) do
+            if id == selectedBarID then
+                specialSelectorRowOffset = math.floor(
+                    (index - 1) / SPECIAL_VISIBLE_COUNT
+                )
+                break
+            end
+        end
         ClampBarSelectorOffset()
         return
     end
@@ -346,7 +379,7 @@ local function RefreshCategoryButtons()
         return not target
             or name == "Layout"
             or name == "Appearance"
-            or name == "Keybinds"
+            or (name == "Keybinds" and target.bindable ~= false)
             or (name == "Visibility" and target.visibility)
             or (name == "Action Pages" and target.paging)
     end
@@ -404,6 +437,91 @@ local function UpdateDynamicLayout()
     )
 end
 
+local function CreateSelectorScrollbar(viewport, getMaximum, getOffset, setOffset)
+    local track = CreateFrame("Frame", nil, viewport, "BackdropTemplate")
+    track:SetWidth(8)
+    track:SetPoint("TOPRIGHT", viewport, "TOPRIGHT", -3, -2)
+    track:SetPoint("BOTTOMRIGHT", viewport, "BOTTOMRIGHT", -3, 2)
+    track:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8"})
+    track:SetBackdropColor(0.08, 0.10, 0.13, 0.9)
+    track:EnableMouse(true)
+    track:EnableMouseWheel(true)
+
+    local thumb = CreateFrame("Frame", nil, track, "BackdropTemplate")
+    thumb:SetWidth(8)
+    thumb:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8x8"})
+    thumb:SetBackdropColor(unpack(colors.accent))
+    thumb:EnableMouse(true)
+    thumb:EnableMouseWheel(true)
+    thumb:RegisterForDrag("LeftButton")
+
+    local dragging = false
+    local dragOffset = 0
+
+    local function Update()
+        local maximum = getMaximum()
+        if maximum <= 0 then
+            dragging = false
+            track:Hide()
+            return
+        end
+
+        track:Show()
+        local height = track:GetHeight()
+        if height <= 0 then return end
+        local thumbHeight = math.min(
+            height,
+            math.max(14, height / (maximum + 1))
+        )
+        thumb:SetHeight(thumbHeight)
+        local travel = math.max(0, height - thumbHeight)
+        local fraction = math.max(0, math.min(1, getOffset() / maximum))
+        thumb:ClearAllPoints()
+        thumb:SetPoint("TOP", track, "TOP", 0, -travel * fraction)
+    end
+
+    local function FromCursor(keepOffset)
+        local _, cursorY = GetCursorPosition()
+        local scale = track:GetEffectiveScale()
+        local top = track:GetTop()
+        if not top or not scale or scale <= 0 then return end
+        local height = track:GetHeight()
+        local thumbHeight = thumb:GetHeight()
+        local travel = math.max(0, height - thumbHeight)
+        if travel <= 0 then return end
+        local position = top - cursorY / scale
+            - (keepOffset and dragOffset or thumbHeight / 2)
+        position = math.max(0, math.min(travel, position))
+        setOffset(math.floor(position / travel * getMaximum() + 0.5))
+    end
+
+    track:SetScript("OnMouseDown", function(_, mouseButton)
+        if mouseButton == "LeftButton" then FromCursor(false) end
+    end)
+
+    thumb:SetScript("OnDragStart", function()
+        local _, cursorY = GetCursorPosition()
+        local scale = track:GetEffectiveScale()
+        dragOffset = track:GetTop() - cursorY / scale
+            - (track:GetTop() - thumb:GetTop())
+        dragging = true
+    end)
+    thumb:SetScript("OnDragStop", function()
+        dragging = false
+    end)
+    thumb:SetScript("OnUpdate", function()
+        if dragging then FromCursor(true) end
+    end)
+
+    local function Wheel(_, delta)
+        setOffset(getOffset() - delta)
+    end
+    track:SetScript("OnMouseWheel", Wheel)
+    thumb:SetScript("OnMouseWheel", Wheel)
+    track:Hide()
+    return Update
+end
+
 local function RefreshBarSelector()
     if not barSelectorViewport then return end
 
@@ -453,21 +571,50 @@ local function RefreshBarSelector()
                 end
             )
 
+            button:EnableMouseWheel(true)
+            button:SetScript("OnMouseWheel", function(self, delta)
+                if type(self.barID) == "string" then
+                    local maxRow = math.max(
+                        0, math.ceil(#GetSpecialBarIDs() / SPECIAL_VISIBLE_COUNT) - 1
+                    )
+                    specialSelectorRowOffset = math.max(
+                        0, math.min(maxRow, specialSelectorRowOffset - delta)
+                    )
+                else
+                    local maxRow = math.max(
+                        0, math.ceil(#ns.GetBarIDs() / BAR_COLUMNS) - BAR_VISIBLE_ROWS
+                    )
+                    barSelectorOffset = math.max(
+                        0, math.min(maxRow, barSelectorOffset - delta)
+                    )
+                end
+                RefreshBarSelector()
+            end)
+
             barButtonPool[poolIndex] = button
         end
 
         button.barID = barID
         button:SetParent(parent)
+        local special = type(barID) == "string"
+        local width = special and 109 or BAR_BUTTON_WIDTH
+        local spacing = special and 2 or BAR_BUTTON_SPACING
+        button:SetWidth(width)
         button:ClearAllPoints()
         button:SetPoint(
             "TOPLEFT", parent, "TOPLEFT",
-            column * (BAR_BUTTON_WIDTH + BAR_BUTTON_SPACING),
+            column * (width + spacing),
             -row * SELECTOR_ROW_HEIGHT
         )
 
         local target = GetTarget(barID)
-
-        button:SetText(target and target.name or settings.name)
+        local specialLabels = {
+            petBar = "Pet", stanceBar = "Stance",
+            extraAction = "Extra", zoneAbility = "Zone",
+            vehicleControls = "Vehicle", microMenu = "Micro Menu",
+            bagBar = "Bag Bar",
+        }
+        button:SetText(target and (specialLabels[barID] or target.name) or settings.name)
         button.label:ClearAllPoints()
         button.label:SetPoint("LEFT", button, "LEFT", 28, 0)
         button.label:SetPoint("RIGHT", button, "RIGHT", -4, 0)
@@ -514,6 +661,31 @@ local function RefreshBarSelector()
             12, -132
         )
         specialSelectorViewport:SetSize(780, 30)
+        specialSelectorViewport:SetClipsChildren(true)
+        specialSelectorViewport:EnableMouseWheel(true)
+        specialSelectorViewport:SetScript("OnMouseWheel", function(_, delta)
+            local maxRow = math.max(
+                0, math.ceil(#GetSpecialBarIDs() / SPECIAL_VISIBLE_COUNT) - 1
+            )
+            specialSelectorRowOffset = math.max(
+                0, math.min(maxRow, specialSelectorRowOffset - delta)
+            )
+            RefreshBarSelector()
+        end)
+
+        specialSelectorScrollbar = CreateSelectorScrollbar(
+            specialSelectorViewport,
+            function()
+                return math.max(0,
+                    math.ceil(#GetSpecialBarIDs() / SPECIAL_VISIBLE_COUNT) - 1
+                )
+            end,
+            function() return specialSelectorRowOffset end,
+            function(offset)
+                specialSelectorRowOffset = offset
+                RefreshBarSelector()
+            end
+        )
 
         barSelectorSection.SpecialViewport =
             specialSelectorViewport
@@ -542,20 +714,24 @@ local function RefreshBarSelector()
         end
     end
 
-    for index, id in ipairs({
-        "petBar", "stanceBar", "extraAction",
-        "zoneAbility", "vehicleControls",
-    }) do
+    local specialIDs = GetSpecialBarIDs()
+    local firstSpecial = specialSelectorRowOffset * SPECIAL_VISIBLE_COUNT + 1
+    local lastSpecial = math.min(
+        #specialIDs, firstSpecial + SPECIAL_VISIBLE_COUNT - 1
+    )
+    for index = firstSpecial, lastSpecial do
         PlaceButton(
-            id,
-            BAR_VISIBLE_COUNT + index,
+            specialIDs[index],
+            BAR_VISIBLE_COUNT + index - firstSpecial + 1,
             specialSelectorViewport,
-            index - 1,
+            index - firstSpecial,
             0
         )
     end
 
     UpdateDynamicLayout()
+    if actionSelectorScrollbar then actionSelectorScrollbar() end
+    if specialSelectorScrollbar then specialSelectorScrollbar() end
 end
 
 RefreshControls = function()
@@ -1360,6 +1536,7 @@ local function CreateResizeGrip()
         panel:GetFrameLevel() + 15
     )
     resizeGrip:RegisterForDrag("LeftButton")
+    resizeGrip:RegisterForClicks("LeftButtonUp")
 
     local line =
         resizeGrip:CreateTexture(nil, "ARTWORK")
@@ -1377,32 +1554,88 @@ local function CreateResizeGrip()
         "CENTER", resizeGrip, "CENTER", 0, -2
     )
 
-    resizeGrip:SetScript(
-        "OnDragStart", StartVerticalResize
+    resizeHint = CreateFrame(
+        "Frame", nil, panel, "BackdropTemplate"
     )
-    resizeGrip:SetScript(
-        "OnDragStop", StopVerticalResize
+    resizeHint:SetSize(294, 94)
+    resizeHint:SetPoint(
+        "BOTTOM", resizeGrip, "TOP", 0, 8
     )
-    resizeGrip:SetScript(
-        "OnUpdate", UpdateVerticalResize
-    )
+    resizeHint:SetFrameStrata("TOOLTIP")
+    resizeHint:SetFrameLevel(resizeGrip:GetFrameLevel() + 20)
+    resizeHint:EnableMouse(false)
+    widgets.SetBackdrop(resizeHint, colors.background)
 
-    resizeGrip:SetScript("OnEnter", function(self)
+    local hintTitle = resizeHint:CreateFontString(
+        nil, "OVERLAY"
+    )
+    hintTitle:SetFont(font, 12, "OUTLINE")
+    hintTitle:SetTextColor(unpack(colors.text))
+    hintTitle:SetPoint(
+        "TOPLEFT", resizeHint, "TOPLEFT", 12, -11
+    )
+    hintTitle:SetText("Resize Configuration")
+
+    local hintBody = resizeHint:CreateFontString(
+        nil, "OVERLAY"
+    )
+    hintBody:SetFont(font, 10, "OUTLINE")
+    hintBody:SetTextColor(unpack(colors.muted))
+    hintBody:SetPoint(
+        "TOPLEFT", hintTitle, "BOTTOMLEFT", 0, -7
+    )
+    hintBody:SetPoint(
+        "RIGHT", resizeHint, "RIGHT", -12, 0
+    )
+    hintBody:SetJustifyH("LEFT")
+    hintBody:SetWordWrap(true)
+    hintBody:SetText(
+        "Drag to resize the menu. Double-click to restore the default 1080 x 720 size."
+    )
+    resizeHint:Hide()
+
+    resizeGrip:SetScript("OnDragStart", function()
+        lastResizeClickTime = 0
+        resizeHint:Hide()
+        StartVerticalResize()
+    end)
+    resizeGrip:SetScript("OnDragStop", StopVerticalResize)
+    resizeGrip:SetScript("OnUpdate", UpdateVerticalResize)
+
+    resizeGrip:SetScript("OnEnter", function()
         line:SetAlpha(1)
         secondLine:SetAlpha(1)
-        GameTooltip:SetOwner(self, "ANCHOR_TOP")
-        GameTooltip:SetText("Resize Configuration")
-        GameTooltip:AddLine(
-            "Drag up or down. Above 720, more settings are visible; below 720, the entire window scales.",
-            1, 1, 1, true
-        )
-        GameTooltip:Show()
+        if not resizeInProgress and not isMinimized then
+            resizeHint:Show()
+        end
     end)
 
     resizeGrip:SetScript("OnLeave", function()
         line:SetAlpha(0.65)
         secondLine:SetAlpha(0.65)
-        GameTooltip:Hide()
+        resizeHint:Hide()
+    end)
+
+    resizeGrip:HookScript("OnHide", function()
+        resizeHint:Hide()
+    end)
+
+    resizeGrip:SetScript("OnClick", function(_, mouseButton)
+        if mouseButton ~= "LeftButton" or isMinimized or resizeInProgress then
+            return
+        end
+
+        local now = GetTime()
+        if lastResizeClickTime > 0 and now - lastResizeClickTime <= 0.35 then
+            lastResizeClickTime = 0
+            preferredWindowHeight = WINDOW_HEIGHT
+            SaveWindowHeight()
+            PositionConfigWindow()
+            FitConfigToScreen()
+            resizeHint:Hide()
+        else
+            lastResizeClickTime = now
+        end
     end)
 
     line:SetAlpha(0.65)
@@ -2366,6 +2599,20 @@ local function CreateBarSelector()
                 )
             end
 
+            RefreshBarSelector()
+        end
+    )
+
+    actionSelectorScrollbar = CreateSelectorScrollbar(
+        barSelectorViewport,
+        function()
+            return math.max(0,
+                math.ceil(#ns.GetBarIDs() / BAR_COLUMNS) - BAR_VISIBLE_ROWS
+            )
+        end,
+        function() return barSelectorOffset end,
+        function(offset)
+            barSelectorOffset = offset
             RefreshBarSelector()
         end
     )

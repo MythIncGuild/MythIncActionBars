@@ -1,3 +1,4 @@
+
 ## Interface: 120100
 ## Title: MythInc Action Bars
 ## Notes: A modern, customizable World of Warcraft action bar replacement by Myth Inc.
@@ -37,3 +38,4 @@ SpecialBarIntegration.lua
 ExtraAbilities.lua
 BindingLabels.lua
 VehicleControls.lua
+UtilityBars.lua
