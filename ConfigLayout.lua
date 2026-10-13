@@ -1,3 +1,4 @@
+
 local addonName, ns = ...
 ns.SpecialConfigTargets = ns.SpecialConfigTargets or {}
 
@@ -494,6 +495,70 @@ function ns.CreateSpecialConfigPage(parent, context)
             )
         end
 
+        local function Color(section, x, y)
+            widgets.CreateText(section, "Color", 11, x, y - 6)
+
+            local button = CreateFrame(
+                "Button", nil, section, "BackdropTemplate"
+            )
+            button:SetSize(72, 24)
+            button:SetPoint(
+                "TOPLEFT", section, "TOPLEFT", x + 56, y
+            )
+            button:SetBackdrop({
+                bgFile = "Interface\\Buttons\\WHITE8x8",
+                edgeFile = "Interface\\Buttons\\WHITE8x8",
+                edgeSize = 1,
+            })
+
+            local function RefreshColor()
+                local settings = target.GetSettings()
+                if not settings then return end
+                local color = settings.color or target.defaults.color
+                button:SetBackdropColor(
+                    color[1], color[2], color[3], 1
+                )
+                button:SetBackdropBorderColor(0.35, 0.38, 0.40, 1)
+            end
+
+            frame.RefreshColor = RefreshColor
+
+            button:SetScript("OnClick", function()
+                if InCombatLockdown() then
+                    Message("Settings cannot change during combat.")
+                    return
+                end
+
+                local settings = target.GetSettings()
+                if not settings then return end
+                local color = settings.color or target.defaults.color
+                local old = { color[1], color[2], color[3] }
+
+                local function Set(r, g, b)
+                    settings.color = { r, g, b }
+                    if target.GetSettings() == settings then
+                        target.Refresh()
+                        RefreshColor()
+                    end
+                end
+
+                ColorPickerFrame:SetupColorPickerAndShow({
+                    r = old[1],
+                    g = old[2],
+                    b = old[3],
+                    hasOpacity = false,
+                    swatchFunc = function()
+                        Set(ColorPickerFrame:GetColorRGB())
+                    end,
+                    cancelFunc = function()
+                        Set(old[1], old[2], old[3])
+                    end,
+                })
+            end)
+
+            RefreshColor()
+        end
+
         if category == "Layout" then
             local section = widgets.CreateSection(
                 frame, target.name .. " Layout", 1036, 360, 0, 0
@@ -501,6 +566,9 @@ function ns.CreateSpecialConfigPage(parent, context)
 
             if target.grid then
                 Slider(section, "Buttons Per Row", "columns", 1, 10, 1, 24, -42)
+            elseif target.statusBar then
+                Slider(section, "Bar Width", "width", 120, 800, 1, 24, -42)
+                Slider(section, "Bar Height", "height", 8, 40, 1, 554, -42)
             end
 
             Slider(section, "X Position", "x", -1000, 1000, 1, 24, -146)
@@ -525,22 +593,51 @@ function ns.CreateSpecialConfigPage(parent, context)
             )
 
         elseif category == "Appearance" then
-            local section = widgets.CreateSection(
-                frame, target.name .. " Appearance", 1036, 300, 0, 0
-            )
+            if target.statusBar then
+                local section = widgets.CreateSection(
+                    frame, target.name .. " Appearance", 1036, 260, 0, 0
+                )
 
-            if target.grid then
-                Slider(section, "Button Size", "buttonSize", 24, 64, 1, 24, -42)
-                Slider(section, "Spacing", "spacing", 0, 20, 1, 554, -42)
+                Slider(section, "Scale", "scale", 0.5, 2, 0.05, 24, -42)
+                Check(section, "Show Text", "showText", 554, -42)
+                Check(section, "Show Standing / Level", "showStanding", 24, -136)
+                Check(section, "Show Current / Maximum", "showValues", 554, -136)
+                Check(section, "Show Percentage", "showPercent", 24, -194)
+
+                local colorsSection = widgets.CreateSection(
+                    frame, "Bar Colour", 1036, 126, 0, -276
+                )
+
+                Color(colorsSection, 24, -42)
+
+                widgets.CreateButton(
+                    colorsSection, "Reset Colour", 150, 30, 222, -40,
+                    function()
+                        if InCombatLockdown() then return end
+                        local settings = target.GetSettings()
+                        settings.color = { unpack(target.defaults.color) }
+                        target.Refresh()
+                        frame:Refresh()
+                    end
+                )
+            else
+                local section = widgets.CreateSection(
+                    frame, target.name .. " Appearance", 1036, 300, 0, 0
+                )
+
+                if target.grid then
+                    Slider(section, "Button Size", "buttonSize", 24, 64, 1, 24, -42)
+                    Slider(section, "Spacing", "spacing", 0, 20, 1, 554, -42)
+                end
+
+                Slider(section, "Scale", "scale", 0.5, 2, 0.05, 24, -146)
+
+                widgets.CreateText(
+                    section,
+                    "These controls resize the existing native buttons. Other artwork follows Blizzard's presentation.",
+                    11, 24, -254, true
+                )
             end
-
-            Slider(section, "Scale", "scale", 0.5, 2, 0.05, 24, -146)
-
-            widgets.CreateText(
-                section,
-                "These controls resize the existing native buttons. Other artwork follows Blizzard's presentation.",
-                11, 24, -254, true
-            )
 
         elseif category == "Visibility" then
             local fadeY = 0
@@ -559,6 +656,13 @@ function ns.CreateSpecialConfigPage(parent, context)
                     11, 24, -194, true
                 )
                 fadeY = -266
+            elseif target.statusBar then
+                widgets.CreateText(
+                    frame,
+                    "Experience hides at max level; capped reputations hide unless Paragon progress is available.",
+                    11, 24, -12, true
+                )
+                fadeY = -50
             else
                 widgets.CreateText(
                     frame,
@@ -654,6 +758,7 @@ function ns.CreateSpecialConfigPage(parent, context)
             for _, control in ipairs(frame.controls) do control:Refresh() end
 
             local settings = target.GetSettings()
+            if frame.RefreshColor then frame.RefreshColor() end
             for index, button in ipairs(frame.bindButtons) do
                 local available = settings.enabled and index <= target.Count()
                 if available then button:Enable() else button:Disable() end

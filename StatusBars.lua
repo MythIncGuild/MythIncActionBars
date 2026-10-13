@@ -16,7 +16,11 @@ for _, definition in ipairs(definitions) do
         width = 360,
         height = 18,
         scale = 1,
+        color = { unpack(definition.color) },
         showText = true,
+        showStanding = true,
+        showValues = true,
+        showPercent = true,
         visibility = {
             opacity = 1,
             fadedOpacity = 0.2,
@@ -260,10 +264,6 @@ local function CreateState(definition)
     })
     mover:SetBackdropColor(0.04, 0.55, 0.58, 0.25)
     mover:SetBackdropBorderColor(0.20, 0.85, 0.88, 1)
-    local title = mover:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    title:SetPoint("CENTER")
-    title:SetText(definition.name)
-
     mover:SetScript("OnDragStart", function(self)
         if InCombatLockdown() then return end
         local x, y = self:GetCenter()
@@ -336,13 +336,25 @@ local function UpdateData(state)
 
     bar:SetMinMaxValues(0, data.maximum)
     bar:SetValue(data.value)
-    bar:SetStatusBarColor(unpack(data.color))
-    local percent = data.value / data.maximum * 100
-    local label = data.name .. " - " .. (data.level or "")
-        .. "  " .. Number(data.value) .. "/" .. Number(data.maximum)
-        .. " (" .. string.format("%.0f%%", percent) .. ")"
-    bar.text:SetText(label)
-    bar.text:SetShown(settings.showText or state.unlocked or state.hovered)
+    local color = settings.color or data.color
+    bar:SetStatusBarColor(
+        math.max(0, math.min(1, tonumber(color[1]) or data.color[1])),
+        math.max(0, math.min(1, tonumber(color[2]) or data.color[2])),
+        math.max(0, math.min(1, tonumber(color[3]) or data.color[3]))
+    )
+
+    local parts = { data.name }
+    if settings.showStanding ~= false and data.level and data.level ~= "" then
+        parts[#parts + 1] = data.level
+    end
+    if settings.showValues ~= false then
+        parts[#parts + 1] = Number(data.value) .. "/" .. Number(data.maximum)
+    end
+    if settings.showPercent ~= false then
+        parts[#parts + 1] = "(" .. string.format("%.0f%%", data.value / data.maximum * 100) .. ")"
+    end
+    bar.text:SetText(table.concat(parts, "  "))
+    bar.text:SetShown(settings.showText ~= false or state.unlocked)
     bar:SetShown(settings.enabled and (state.unlocked or not data.capped))
 end
 
