@@ -39,3 +39,4 @@ ExtraAbilities.lua
 BindingLabels.lua
 VehicleControls.lua
 UtilityBars.lua
+StatusBars.lua

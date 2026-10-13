@@ -125,6 +125,7 @@ local SPECIAL_VISIBLE_COUNT = BAR_COLUMNS
 local SPECIAL_BAR_IDS = {
     "petBar", "stanceBar", "extraAction", "zoneAbility",
     "vehicleControls", "microMenu", "bagBar",
+    "experienceBar", "reputationBar",
 }
 local SELECTOR_TOP = -208
 local SELECTOR_ROW_HEIGHT = BAR_BUTTON_HEIGHT + BAR_BUTTON_SPACING
@@ -612,7 +613,8 @@ local function RefreshBarSelector()
             petBar = "Pet", stanceBar = "Stance",
             extraAction = "Extra", zoneAbility = "Zone",
             vehicleControls = "Vehicle", microMenu = "Micro Menu",
-            bagBar = "Bag Bar",
+            bagBar = "Bag Bar", experienceBar = "XP",
+            reputationBar = "Reputation",
         }
         button:SetText(target and (specialLabels[barID] or target.name) or settings.name)
         button.label:ClearAllPoints()
@@ -1098,6 +1100,7 @@ local function ApplyBulkSettings()
             end
             if appearance then
                 destination.appearance = DeepCopy(source.appearance or {})
+                touched = true
                 touched = true
             end
             if visibility then
